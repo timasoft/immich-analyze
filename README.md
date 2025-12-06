@@ -24,19 +24,7 @@ Immich Analyze automatically generates detailed descriptions for images in your 
 
 ## Installation
 
-### Docker (Recommended)
-
-```bash
-docker run -d \
-  --name immich-analyze \
-  -v /path/to/immich/:/data \
-  -e DB_USERNAME=your_postgres_user \
-  -e DB_PASSWORD=your_postgres_password \
-  -e DB_DATABASE_NAME=immich \
-  timasoft/immich-analyze:latest
-```
-
-### Docker Compose Integration
+### Docker Compose Integration (Recommended)
 
 To integrate Immich Analyze directly into your Immich setup, add the following service to your `docker-compose.yaml` file:
 
@@ -64,7 +52,7 @@ services:
     #           capabilities: [gpu]
 
   immich-analyze:
-    image: timasoft/immich-analyze:latest
+    image: ghcr.io/timasoft/immich-analyze:main
     container_name: immich-analyze
     restart: unless-stopped
     volumes:
