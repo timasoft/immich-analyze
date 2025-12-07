@@ -56,5 +56,7 @@ if [[ "$IMMICH_ANALYZE_TIMEOUT" =~ ^[0-9]+$ ]]; then
     args+=("--timeout" "$IMMICH_ANALYZE_TIMEOUT")
 fi
 
+echo "Running immich-analyze with args: ${args[@]}"
+
 # Execute with proper signal handling
 exec immich-analyze "${args[@]}"
