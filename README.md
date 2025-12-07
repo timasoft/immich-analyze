@@ -58,10 +58,9 @@ services:
     volumes:
       - ${UPLOAD_LOCATION}:/data
       - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
     environment:
-      - DB_USERNAME=${DB_USERNAME}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_DATABASE_NAME=${DB_DATABASE_NAME}
       # Use internal Ollama service if defined above
       - IMMICH_ANALYZE_OLLAMA_HOSTS=http://ollama:11434
       # Or use external Ollama servers by uncommenting and modifying:
@@ -90,14 +89,20 @@ networks:
 Make sure to:
 1. Add the service(s) to your existing `docker-compose.yml` file
 2. Ensure the `immich-network` exists or create a new network
-3. Verify the volume path matches your Immich data directory
-4. Add the required environment variables to your `.env` file
+3. Add the required environment variables to your `.env` file
 
 After adding the service, run:
 ```bash
 docker-compose up -d immich-analyze
 # If using internal Ollama service:
 # docker-compose up -d ollama
+```
+
+### Nix
+
+If you're using Nix or NixOS, you can build and run the application directly:
+```bash
+nix run github:timasoft/immich-analyze --immich-root /path/to/immich/data --postgres-url "host=localhost user=your_postgres_user dbname=immich password=your_postgres_password" -c
 ```
 
 ### From Source
@@ -116,7 +121,7 @@ docker-compose up -d immich-analyze
 
 3. Run the application:
    ```bash
-   ./target/release/immich-analyze --immich-root /path/to/immich/data --postgres-url "host=localhost user=your_postgres_user dbname=immich password=your_postgres_password"
+   ./target/release/immich-analyze --immich-root /path/to/immich/data --postgres-url "host=localhost user=your_postgres_user dbname=immich password=your_postgres_password" -c
    ```
 
 ## Configuration
