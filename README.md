@@ -205,22 +205,6 @@ Install models using:
 ollama pull qwen3-vl:4b-thinking-q4_K_M
 ```
 
-## Development Setup
-
-### Manual Setup
-```bash
-# Install dependencies
-sudo apt-get install libssl-dev pkg-config
-
-# Build and run
-cargo run --release -- --help
-```
-
-### Building Docker Image
-```bash
-docker build -t immich-analyze .
-```
-
 ## Architecture
 
 The application integrates with your Immich instance by analyzing preview images stored in the `thumbs/` directory and storing generated descriptions directly in the PostgreSQL database. It supports multiple operation modes:
