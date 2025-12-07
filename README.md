@@ -212,3 +212,7 @@ The application integrates with your Immich instance by analyzing preview images
 - **Combined Mode**: Process existing images in background while simultaneously monitoring for new additions
 
 The system includes automatic retry logic with multiple Ollama hosts and handles file stability checks to ensure images are fully written before processing.
+
+TODO:
+- [ ] Add NixOS service module
+- [ ] Add video support
