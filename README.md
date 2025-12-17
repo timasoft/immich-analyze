@@ -131,6 +131,8 @@ nix run github:timasoft/immich-analyze --immich-root /path/to/immich/data --post
 | `DB_USERNAME` | PostgreSQL username | Required |
 | `DB_PASSWORD` | PostgreSQL password | Required |
 | `DB_DATABASE_NAME` | PostgreSQL database name | Required |
+| `DB_HOSTNAME` | PostgreSQL hostname | `database` |
+| `DB_PORT` | PostgreSQL port | `5432` |
 | `IMMICH_ANALYZE_OLLAMA_HOSTS` | Comma-separated Ollama hosts | `http://localhost:11434` |
 | `IMMICH_ANALYZE_MODEL_NAME` | Ollama model to use | `qwen3-vl:4b-thinking-q4_K_M` |
 | `IMMICH_ANALYZE_PROMPT` | Prompt for generating image descriptions | Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long. |

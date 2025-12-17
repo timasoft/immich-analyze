@@ -15,11 +15,15 @@ for var in "${required_vars[@]}"; do
     fi
 done
 
+# Set default values for optional database connection variables
+DB_HOSTNAME="${DB_HOSTNAME:-database}"
+DB_PORT="${DB_PORT:-5432}"
+
 # Build safe arguments array
 args=(
     "--combined"
     "--immich-root" "/data"
-    "--postgres-url" "postgresql://$DB_USERNAME:$DB_PASSWORD@database:5432/$DB_DATABASE_NAME"
+    "--postgres-url" "postgresql://$DB_USERNAME:$DB_PASSWORD@$DB_HOSTNAME:$DB_PORT/$DB_DATABASE_NAME"
 )
 
 # Add optional configuration safely
