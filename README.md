@@ -11,6 +11,7 @@ Immich Analyze automatically generates detailed descriptions for images in your 
 - AI-powered image analysis using Ollama vision models
 - Multiple operation modes: batch processing, folder monitoring, or combined mode
 - Multi-host support with automatic failover for Ollama servers
+- JWT authentication support for secure Ollama API access
 - Direct integration with Immich PostgreSQL database
 - Concurrent processing with configurable parallelism
 - Internationalization support (English and Russian)
@@ -65,6 +66,8 @@ services:
       - IMMICH_ANALYZE_OLLAMA_HOSTS=http://ollama:11434
       # Or use external Ollama servers by uncommenting and modifying:
       # - IMMICH_ANALYZE_OLLAMA_HOSTS=http://external-ollama-server:11434,http://backup-ollama:11434
+      # For Ollama servers requiring authentication:
+      # - IMMICH_ANALYZE_OLLAMA_JWT_TOKEN=your_ollama_jwt_token_here
     depends_on:
       - database
       # Comment the next line if using external Ollama service
@@ -85,6 +88,7 @@ networks:
   docker exec -it ollama ollama pull qwen3-vl:4b-thinking-q4_K_M
   ```
 - For GPU acceleration with NVIDIA cards, uncomment the deploy section and ensure you have NVIDIA Container Toolkit installed
+- If your Ollama instance requires authentication, provide a valid JWT token via `IMMICH_ANALYZE_OLLAMA_JWT_TOKEN` environment variable
 
 Make sure to:
 1. Add the service(s) to your existing `docker-compose.yml` file
@@ -134,6 +138,7 @@ nix run github:timasoft/immich-analyze --immich-root /path/to/immich/data --post
 | `DB_HOSTNAME` | PostgreSQL hostname | `database` |
 | `DB_PORT` | PostgreSQL port | `5432` |
 | `IMMICH_ANALYZE_OLLAMA_HOSTS` | Comma-separated Ollama hosts | `http://localhost:11434` |
+| `IMMICH_ANALYZE_OLLAMA_JWT_TOKEN` | JWT token for Ollama API authentication | `` (empty) |
 | `IMMICH_ANALYZE_MODEL_NAME` | Ollama model to use | `qwen3-vl:4b-thinking-q4_K_M` |
 | `IMMICH_ANALYZE_PROMPT` | Prompt for generating image descriptions | Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long. |
 | `IMMICH_ANALYZE_IGNORE_EXISTING` | Ignore existing descriptions | `false` |
@@ -155,6 +160,8 @@ Options:
       --postgres-url <POSTGRES_URL>      PostgreSQL connection string [default: host=localhost user=postgres dbname=immich password=your_password]
       --model-name <MODEL_NAME>          Ollama model name for image analysis [default: qwen3-vl:4b-thinking-q4_K_M]
       --ollama-hosts <OLLAMA_HOSTS>      Ollama host URLs [default: http://localhost:11434]
+      --ollama-jwt-token <OLLAMA_JWT_TOKEN>
+                                         JWT token for Ollama API authentication [default: ]
       --max-concurrent <MAX_CONCURRENT>  Maximum number of concurrent requests to Ollama [default: 4]
       --unavailable-duration <UNAVAILABLE_DURATION>
                                          Ollama host availability check interval in seconds [default: 60]
@@ -176,7 +183,7 @@ Options:
 ```bash
 immich-analyze \
   --postgres-url "host=localhost user=postgres dbname=immich password=password" \
-  --ollama-hosts "http://ollama-server:11434"
+  --ollama-hosts "http://secure-ollama-server:11434"
 ```
 
 ### Monitor Mode (Watch for new images)
@@ -214,10 +221,10 @@ The application integrates with your Immich instance by analyzing preview images
 - **Monitor Mode**: Automatically process new images as they're added to Immich
 - **Combined Mode**: Process existing images in background while simultaneously monitoring for new additions
 
-The system includes automatic retry logic with multiple Ollama hosts and handles file stability checks to ensure images are fully written before processing.
+The system includes automatic retry logic with multiple Ollama hosts and handles file stability checks to ensure images are fully written before processing. When JWT authentication is enabled, the token is securely passed in the Authorization header using the Bearer scheme for all requests to Ollama API endpoints.
 
 ## TODO:
 - [ ] Add waiting list
-- [ ] Add JWT support
+- [x] Add JWT support
 - [ ] Add NixOS service module
 - [ ] Add video support

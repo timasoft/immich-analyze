@@ -27,6 +27,9 @@ pub struct Args {
     /// Ollama host URLs
     #[arg(long, default_value = "http://localhost:11434", value_delimiter = ',')]
     pub ollama_hosts: Vec<String>,
+    /// JWT token for Ollama authentication
+    #[arg(long, default_value = "")]
+    pub ollama_jwt_token: String,
     /// Maximum number of concurrent requests to Ollama
     #[arg(long, default_value_t = 4)]
     pub max_concurrent: usize,

@@ -56,20 +56,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         std::process::exit(1);
     }
+    let http_client = create_http_client(&args)?;
     if args.combined {
-        run_combined_mode(immich_root, args.clone(), &pg_client_arc, &final_locale).await?;
+        run_combined_mode(
+            immich_root,
+            args.clone(),
+            &pg_client_arc,
+            &http_client,
+            &final_locale,
+        )
+        .await?;
     } else if args.monitor {
-        run_monitor_mode(immich_root, &args, &pg_client_arc, &final_locale).await?;
+        run_monitor_mode(
+            immich_root,
+            &args,
+            &pg_client_arc,
+            &http_client,
+            &final_locale,
+        )
+        .await?;
     } else {
-        run_batch_mode(immich_root, &args, &pg_client_arc, &final_locale).await?;
+        run_batch_mode(
+            immich_root,
+            &args,
+            &pg_client_arc,
+            &http_client,
+            &final_locale,
+        )
+        .await?;
     }
     Ok(())
+}
+
+fn create_http_client(args: &Args) -> Result<reqwest::Client, Box<dyn std::error::Error>> {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if !args.ollama_jwt_token.is_empty() {
+        let auth_header = format!("Bearer {}", args.ollama_jwt_token);
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            reqwest::header::HeaderValue::from_str(&auth_header)?,
+        );
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(args.timeout))
+        .default_headers(headers)
+        .build()?;
+    Ok(client)
 }
 
 async fn run_combined_mode(
     immich_root: &Path,
     args: Args,
     pg_client: &Arc<PgClient>,
+    http_client: &reqwest::Client,
     locale: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.combined_mode_activated"));
@@ -77,10 +116,13 @@ async fn run_combined_mode(
         let immich_root = immich_root.to_path_buf();
         let args = args.clone();
         let pg_client = Arc::clone(pg_client);
+        let http_client = http_client.clone();
         let locale = locale.to_string();
         tokio::spawn(async move {
             println!("{}", rust_i18n::t!("main.processing_existing_images"));
-            if let Err(e) = run_batch_mode(&immich_root, &args, &pg_client, &locale).await {
+            if let Err(e) =
+                run_batch_mode(&immich_root, &args, &pg_client, &http_client, &locale).await
+            {
                 eprintln!(
                     "{}",
                     rust_i18n::t!("error.batch_mode_failed", error = e.to_string())
@@ -93,7 +135,7 @@ async fn run_combined_mode(
         "{}",
         rust_i18n::t!("main.monitor_mode_started_in_background")
     );
-    run_monitor_mode(immich_root, &args, pg_client, locale).await?;
+    run_monitor_mode(immich_root, &args, pg_client, http_client, locale).await?;
     let _ = batch_handle.await;
     Ok(())
 }
@@ -102,6 +144,7 @@ async fn run_monitor_mode(
     immich_root: &Path,
     args: &Args,
     pg_client: &Arc<PgClient>,
+    http_client: &reqwest::Client,
     locale: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.monitor_mode_activated"));
@@ -124,6 +167,7 @@ async fn run_monitor_mode(
         Arc::clone(pg_client),
         &args.prompt,
         &monitor_config,
+        http_client,
     )
     .await?;
     Ok(())
@@ -133,6 +177,7 @@ async fn run_batch_mode(
     immich_root: &Path,
     args: &Args,
     pg_client: &Arc<PgClient>,
+    http_client: &reqwest::Client,
     locale: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
@@ -169,16 +214,13 @@ async fn run_batch_mode(
     if args.ignore_existing {
         println!("{}", rust_i18n::t!("main.ignore_existing_enabled"));
     }
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(args.timeout))
-        .build()?;
     let progress = Arc::new(tokio::sync::Mutex::new(SimpleProgress::new(
         preview_files.len() as u64,
         &rust_i18n::t!("progress.processing_complete"),
     )));
     let results = process_files_concurrently(
         preview_files,
-        &http_client,
+        http_client,
         pg_client,
         args,
         locale,

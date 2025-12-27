@@ -39,6 +39,10 @@ if [ -n "$IMMICH_ANALYZE_PROMPT" ]; then
     args+=("--prompt" "$IMMICH_ANALYZE_PROMPT")
 fi
 
+if [ -n "$IMMICH_ANALYZE_OLLAMA_JWT_TOKEN" ]; then
+    args+=("--ollama-jwt-token" "$IMMICH_ANALYZE_OLLAMA_JWT_TOKEN")
+fi
+
 if [ "${IMMICH_ANALYZE_IGNORE_EXISTING:-false}" = "true" ]; then
     args+=("--ignore-existing")
 fi
