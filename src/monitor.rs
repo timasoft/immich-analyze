@@ -126,11 +126,9 @@ pub async fn monitor_folder(
     pg_client: Arc<PgClient>,
     prompt: &str,
     config: &MonitorConfig,
+    http_client: &Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
     rust_i18n::set_locale(&config.lang);
-    let http_client = Client::builder()
-        .timeout(Duration::from_secs(config.timeout))
-        .build()?;
     let thumbs_dir = immich_root.join("thumbs");
     if !thumbs_dir.exists() {
         return Err(Box::new(ImageAnalysisError::InvalidImmichStructure {
