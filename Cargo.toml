@@ -21,7 +21,7 @@ rust-i18n = "3.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
-tokio = { version = "1.48", features = ["rt-multi-thread", "signal", "macros"] }
+tokio = { version = "1.49", features = ["rt-multi-thread", "signal", "macros"] }
 tokio-postgres = "0.7"
 uuid = { version = "1.19", features = ["serde"] }
 
