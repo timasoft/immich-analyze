@@ -18,10 +18,9 @@ services:
     networks:
       # Rejoint le même réseau que vos containers Immich
       - ansible
-    depends_on:
-      # Note: ces services doivent exister dans le réseau ansible
-      # Décommentez si vous voulez des dépendances explicites
-      # - immich_postgres
+    # depends_on:
+    #   # Décommentez si vous voulez des dépendances explicites
+    #   - immich_postgres
     healthcheck:
       test: ["CMD", "pgrep", "-f", "immich-analyze"]
       interval: 30s
