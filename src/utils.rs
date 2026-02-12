@@ -30,19 +30,19 @@ pub fn extract_uuid_from_preview_filename(filename: &str) -> Result<Uuid, ImageA
         Regex::new(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
             .expect("Invalid uuid regex")
     });
-    if let Some(captures) = PREVIEW_PATTERN.captures(filename)
-        && let Some(uuid_str) = captures.get(1)
-    {
-        return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
-            filename: filename.to_string(),
-        });
+    if let Some(captures) = PREVIEW_PATTERN.captures(filename) {
+        if let Some(uuid_str) = captures.get(1) {
+            return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
+                filename: filename.to_string(),
+            });
+        }
     }
-    if let Some(captures) = UUID_PATTERN.captures(filename)
-        && let Some(uuid_str) = captures.get(1)
-    {
-        return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
-            filename: filename.to_string(),
-        });
+    if let Some(captures) = UUID_PATTERN.captures(filename) {
+        if let Some(uuid_str) = captures.get(1) {
+            return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
+                filename: filename.to_string(),
+            });
+        }
     }
     Err(ImageAnalysisError::InvalidUuid {
         filename: filename.to_string(),

@@ -152,18 +152,19 @@ pub async fn analyze_image(
                         }
                         Err(parse_error) => {
                             // Fallback parsing attempt
-                            if let Ok(json_value) = serde_json::from_str::<Value>(&response_text)
-                                && let Some(content) = json_value
+                            if let Ok(json_value) = serde_json::from_str::<Value>(&response_text) {
+                                if let Some(content) = json_value
                                     .get("message")
                                     .and_then(|m| m.get("content"))
                                     .and_then(|c| c.as_str())
-                            {
-                                let description = content.trim().to_string();
-                                if !description.is_empty() {
-                                    return Ok(crate::database::ImageAnalysisResult {
-                                        description,
-                                        asset_id,
-                                    });
+                                {
+                                    let description = content.trim().to_string();
+                                    if !description.is_empty() {
+                                        return Ok(crate::database::ImageAnalysisResult {
+                                            description,
+                                            asset_id,
+                                        });
+                                    }
                                 }
                             }
                             last_error = Some(ImageAnalysisError::JsonParsing {

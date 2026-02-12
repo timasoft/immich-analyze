@@ -7,6 +7,7 @@ mod config;
 mod database;
 mod error;
 mod file_processing;
+mod llamacpp;
 mod monitor;
 mod ollama;
 mod progress;
@@ -23,6 +24,9 @@ rust_i18n::i18n!("locales", fallback = "en");
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logger to enable debug logging
+    env_logger::init();
+    
     let system_locale = get_system_locale();
     let available_locales = rust_i18n::available_locales!();
     let args = Args::parse();
@@ -115,7 +119,9 @@ async fn run_monitor_mode(
         timeout: args.timeout,
         lang: locale.to_string(),
         ignore_existing: args.ignore_existing,
-        ollama_hosts: args.ollama_hosts.clone(),
+        hosts: args.hosts.clone(),
+        interface: args.interface.clone(),
+        api_key: args.api_key.clone(),
         unavailable_duration: args.unavailable_duration,
     };
     monitor_folder(

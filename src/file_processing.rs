@@ -1,7 +1,9 @@
 use crate::{
+    args::Interface,
     database::{ImageAnalysisResult, asset_has_description, update_or_create_asset_description},
     error::ImageAnalysisError,
-    ollama::{OllamaHostManager, analyze_image},
+    llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
+    ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     progress::SimpleProgress,
     utils::extract_uuid_from_preview_filename,
 };
@@ -48,11 +50,12 @@ pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, Imag
                     let path = entry.path();
                     if path.is_dir() {
                         stack.push(path);
-                    } else if path.is_file()
-                        && let Some(filename) = path.file_name().and_then(|f| f.to_str())
-                        && filename.contains("-preview.")
-                    {
-                        preview_files.push(path);
+                    } else if path.is_file() {
+                        if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
+                            if filename.contains("-preview.") {
+                                preview_files.push(path);
+                            }
+                        }
                     }
                 }
             }
@@ -107,7 +110,10 @@ async fn process_file_with_existing_check(
     model_name: &str,
     prompt: &str,
     timeout: u64,
-    host_manager: &OllamaHostManager,
+    interface: &Interface,
+    hosts: &[String],
+    api_key: &Option<String>,
+    unavailable_duration: u64,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     let filename = path
         .file_name()
@@ -125,7 +131,10 @@ async fn process_file_with_existing_check(
         model_name,
         prompt,
         timeout,
-        host_manager,
+        interface,
+        hosts,
+        api_key,
+        unavailable_duration,
     )
     .await
 }
@@ -137,7 +146,10 @@ async fn process_file(
     model_name: &str,
     prompt: &str,
     timeout: u64,
-    host_manager: &OllamaHostManager,
+    interface: &Interface,
+    hosts: &[String],
+    api_key: &Option<String>,
+    unavailable_duration: u64,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     match extract_uuid_from_preview_filename(
         path.file_name()
@@ -145,8 +157,23 @@ async fn process_file(
             .unwrap_or("unknown"),
     ) {
         Ok(_asset_id) => {
-            let analysis =
-                analyze_image(http_client, path, model_name, prompt, timeout, host_manager).await?;
+            let analysis = match interface {
+                Interface::Ollama => {
+                    let host_manager = OllamaHostManager::new(
+                        hosts.to_vec(),
+                        std::time::Duration::from_secs(unavailable_duration),
+                    );
+                    ollama_analyze_image(http_client, path, model_name, prompt, timeout, &host_manager).await?
+                }
+                Interface::Llamacpp => {
+                    let host_manager = LlamaCppHostManager::new(
+                        hosts.to_vec(),
+                        api_key.clone(),
+                        std::time::Duration::from_secs(unavailable_duration),
+                    );
+                    llamacpp_analyze_image(http_client, path, model_name, prompt, timeout, &host_manager).await?
+                }
+            };
             update_or_create_asset_description(pg_client, analysis.asset_id, &analysis.description)
                 .await?;
             Ok(analysis)
@@ -173,10 +200,10 @@ pub async fn process_files_concurrently(
         let ignore_existing = args.ignore_existing;
         let path_clone = path.clone();
         let timeout = args.timeout;
-        let host_manager = OllamaHostManager::new(
-            args.ollama_hosts.clone(),
-            std::time::Duration::from_secs(args.unavailable_duration),
-        );
+        let interface = args.interface.clone();
+        let hosts = args.hosts.clone();
+        let api_key = args.api_key.clone();
+        let unavailable_duration = args.unavailable_duration;
         async move {
             rust_i18n::set_locale(&lang);
             let filename = path_clone
@@ -197,7 +224,10 @@ pub async fn process_files_concurrently(
                     &model_name,
                     &prompt,
                     timeout,
-                    &host_manager,
+                    &interface,
+                    &hosts,
+                    &api_key,
+                    unavailable_duration,
                 )
                 .await
             } else {
@@ -208,7 +238,10 @@ pub async fn process_files_concurrently(
                     &model_name,
                     &prompt,
                     timeout,
-                    &host_manager,
+                    &interface,
+                    &hosts,
+                    &api_key,
+                    unavailable_duration,
                 )
                 .await
             };

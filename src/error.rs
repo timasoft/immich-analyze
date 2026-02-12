@@ -30,4 +30,6 @@ pub enum ImageAnalysisError {
     AllHostsUnavailable,
     #[error("Ollama request timeout")]
     OllamaRequestTimeout,
+    #[error("Llama.cpp request timeout")]
+    LlamaCppRequestTimeout,
 }

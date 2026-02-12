@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  immich-analyze-llamacpp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: immich-analyze-llamacpp
+    restart: unless-stopped
+    volumes:
+      # Montage des données Immich (lecture seule)
+      - /mnt/mnemonic/francois/immich_files:/data:ro
+      # Synchronisation de l'heure
+      - /etc/localtime:/etc/localtime:ro
+    env_file:      # Configuration spécialisée llama.cpp
+      - .env
+    networks:
+      # Rejoint le même réseau que vos containers Immich
+      - ansible
+    # depends_on:
+    #   # Décommentez si vous voulez des dépendances explicites
+    #   - immich_postgres
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "immich-analyze"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "org.label.description=Immich image analysis with llama.cpp VLM"
+      - "org.label.interface=llamacpp"
+      - "org.label.model=Qwen3-VL-8B-Instruct"
+
+networks:
+  ansible:
+    external: true
+    name: ansible

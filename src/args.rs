@@ -1,4 +1,10 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+
+#[derive(ValueEnum, Debug, Clone, PartialEq)]
+pub enum Interface {
+    Ollama,
+    Llamacpp,
+}
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -24,16 +30,22 @@ pub struct Args {
     /// Ollama model name for image analysis
     #[arg(long, default_value = "qwen3-vl:4b-thinking-q4_K_M")]
     pub model_name: String,
-    /// Ollama host URLs
+    /// AI service interface type
+    #[arg(long, value_enum, default_value = "ollama")]
+    pub interface: Interface,
+    /// Host URLs (Ollama or llama.cpp server)
     #[arg(long, default_value = "http://localhost:11434", value_delimiter = ',')]
-    pub ollama_hosts: Vec<String>,
-    /// Maximum number of concurrent requests to Ollama
+    pub hosts: Vec<String>,
+    /// API key for authentication (llama.cpp server)
+    #[arg(long)]
+    pub api_key: Option<String>,
+    /// Maximum number of concurrent requests
     #[arg(long, default_value_t = 4)]
     pub max_concurrent: usize,
-    /// Ollama host availability check interval in seconds
+    /// Host availability check interval in seconds
     #[arg(long, default_value_t = 60)]
     pub unavailable_duration: u64,
-    /// HTTP/Ollama request timeout in seconds
+    /// HTTP request timeout in seconds
     #[arg(long, default_value_t = 300)]
     pub timeout: u64,
     /// File write timeout in seconds
