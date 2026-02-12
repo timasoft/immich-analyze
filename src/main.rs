@@ -24,6 +24,9 @@ rust_i18n::i18n!("locales", fallback = "en");
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logger to enable debug logging
+    env_logger::init();
+    
     let system_locale = get_system_locale();
     let available_locales = rust_i18n::available_locales!();
     let args = Args::parse();
