@@ -1,6 +1,6 @@
 [package]
 name = "immich-analyze"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "AI-powered image description generator for Immich photo management system"
 authors = ["timasoft <tima.klester@yandex.ru>"]
