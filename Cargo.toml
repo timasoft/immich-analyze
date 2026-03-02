@@ -23,7 +23,7 @@ serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.49", features = ["rt-multi-thread", "signal", "macros"] }
 tokio-postgres = "0.7"
-uuid = { version = "1.19", features = ["serde"] }
+uuid = { version = "1.21", features = ["serde"] }
 
 [profile.release]
 lto = "thin"
