@@ -1,5 +1,6 @@
 use crate::{error::ImageAnalysisError, utils::extract_uuid_from_preview_filename};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use log::{debug, error, info, warn};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
@@ -10,9 +11,6 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-
-// Add logging
-use log::{debug, error, info, warn};
 
 #[derive(Deserialize, Debug)]
 pub struct LlamaCppResponse {
@@ -102,7 +100,7 @@ impl LlamaCppHostManager {
     pub async fn mark_host_unavailable(&self, host: &str) {
         let mut unavailable = self.unavailable_hosts.lock().unwrap();
         unavailable.insert(host.to_string(), Instant::now());
-        println!(
+        warn!(
             "{}",
             rust_i18n::t!("llamacpp.host_marked_unavailable", host = host)
         );
@@ -224,10 +222,6 @@ pub async fn analyze_image(
                     debug!(
                         "llamacpp response body length: {} chars",
                         response_text.len()
-                    );
-                    debug!(
-                        "llamacpp response body (first 200 chars): {}",
-                        &response_text[..200.min(response_text.len())]
                     );
 
                     match serde_json::from_str::<LlamaCppResponse>(&response_text) {

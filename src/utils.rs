@@ -1,4 +1,5 @@
 use crate::error::ImageAnalysisError;
+use log::error;
 use regex::Regex;
 use std::{path::Path, str::FromStr};
 use uuid::Uuid;
@@ -162,7 +163,7 @@ pub fn handle_processing_error(error: &ImageAnalysisError, filename: &str) {
             eprintln!("{}", rust_i18n::t!("error.llamacpp_request_timeout"));
         }
         _ => {
-            eprintln!(
+            error!(
                 "{}",
                 rust_i18n::t!("error.critical_processing_error", filename = filename)
             );
