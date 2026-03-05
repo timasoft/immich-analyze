@@ -1,6 +1,6 @@
 [package]
 name = "immich-analyze"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "AI-powered image description generator for Immich photo management system"
 authors = ["timasoft <tima.klester@yandex.ru>"]
@@ -18,14 +18,14 @@ log = "0.4"
 notify = "8.2"
 once_cell = "1.21"
 regex = "1.12"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 rust-i18n = "3.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
-tokio = { version = "1.48", features = ["rt-multi-thread", "signal", "macros"] }
+tokio = { version = "1.49", features = ["rt-multi-thread", "signal", "macros"] }
 tokio-postgres = "0.7"
-uuid = { version = "1.19", features = ["serde"] }
+uuid = { version = "1.21", features = ["serde"] }
 
 [profile.release]
 lto = "thin"
