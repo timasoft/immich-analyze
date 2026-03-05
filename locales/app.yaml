@@ -161,9 +161,9 @@ status.skipped:
   ru: ""
 
 # Recommendations
-recommendation.check_ollama_status:
-  en: " Check that Ollama server is running: systemctl status ollama"
-  ru: " Проверьте, что Ollama сервер запущен: systemctl status ollama"
+recommendation.check_service_status:
+  en: " Check that AI service is running (Ollama or llama.cpp server)"
+  ru: " Проверьте, что ИИ сервис запущен (Ollama или llama.cpp сервер)"
 recommendation.pull_model:
   en: " Make sure the model is installed: ollama pull %{model}"
   ru: " Убедитесь, что модель установлена: ollama pull %{model}"
@@ -182,9 +182,9 @@ recommendation.check_database_connection:
 recommendation.check_immich_structure:
   en: " Check Immich library structure and file permissions"
   ru: " Проверьте структуру библиотеки Immich и права доступа к файлам"
-recommendation.check_ollama_servers:
-  en: " Check that all Ollama servers are accessible and responsive"
-  ru: " Проверьте, что все Ollama серверы доступны и отвечают"
+recommendation.check_ai_servers:
+  en: " Check that all AI servers are accessible and responsive"
+  ru: " Проверьте, что все ИИ серверы доступны и отвечают"
 
 # Monitoring mode
 monitor.folder_monitoring_started:
@@ -382,12 +382,15 @@ error.invalid_uuid_filename:
 error.batch_mode_failed:
   en: " Batch mode failed: %{error}"
   ru: " Batch режим завершился с ошибкой: %{error}"
-error.all_ollama_hosts_unavailable:
-  en: " All Ollama servers are unavailable. Cannot process image."
-  ru: " Все Ollama серверы недоступны. Невозможно обработать изображение."
+error.all_hosts_unavailable:
+  en: " All servers are unavailable. Cannot process image."
+  ru: " Все серверы недоступны. Невозможно обработать изображение."
 error.ollama_request_timeout:
   en: " Ollama request timed out after 60 seconds"
   ru: " Таймаут запроса к Ollama превысил 60 секунд"
+error.llamacpp_request_timeout:
+  en: " LLaMa.cpp request timed out after 60 seconds"
+  ru: " Таймаут запроса к LLaMa.cpp превысил 60 секунд"
 error.ollama_host_marked_unavailable:
   en: " Ollama host marked as temporarily unavailable: %{host}"
   ru: " Ollama сервер помечен как временно недоступный: %{host}"

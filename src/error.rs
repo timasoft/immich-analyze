@@ -26,8 +26,10 @@ pub enum ImageAnalysisError {
     InvalidUuid { filename: String },
     #[error("Invalid Immich structure: {error}")]
     InvalidImmichStructure { error: String },
-    #[error("All Ollama hosts are unavailable")]
+    #[error("All AI service hosts are unavailable")]
     AllHostsUnavailable,
     #[error("Ollama request timeout")]
     OllamaRequestTimeout,
+    #[error("Llama.cpp request timeout")]
+    LlamaCppRequestTimeout,
 }

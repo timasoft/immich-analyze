@@ -1,15 +1,19 @@
 use crate::{
+    args::Interface,
     database::{ImageAnalysisResult, asset_has_description, update_or_create_asset_description},
     error::ImageAnalysisError,
-    ollama::{OllamaHostManager, analyze_image},
+    llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
+    ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     progress::SimpleProgress,
     utils::extract_uuid_from_preview_filename,
 };
 use futures::stream::{self, StreamExt};
+use log::error;
 use reqwest::Client;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 use tokio::sync::Mutex;
 use tokio_postgres::Client as PgClient;
@@ -57,7 +61,7 @@ pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, Imag
                 }
             }
             Err(e) => {
-                eprintln!(
+                error!(
                     "{}",
                     rust_i18n::t!(
                         "error.reading_directory",
@@ -101,13 +105,8 @@ pub fn handle_no_files(
 }
 
 async fn process_file_with_existing_check(
-    http_client: &Client,
-    pg_client: &PgClient,
+    ctx: &crate::config::ProcessingContext<'_>,
     path: &Path,
-    model_name: &str,
-    prompt: &str,
-    timeout: u64,
-    host_manager: &OllamaHostManager,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     let filename = path
         .file_name()
@@ -115,38 +114,41 @@ async fn process_file_with_existing_check(
         .unwrap_or("unknown")
         .to_string();
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
-    if asset_has_description(pg_client, asset_id).await? {
+    if asset_has_description(ctx.pg_client, asset_id).await? {
         return Err(ImageAnalysisError::AlreadyProcessed { filename });
     }
-    process_file(
-        http_client,
-        pg_client,
-        path,
-        model_name,
-        prompt,
-        timeout,
-        host_manager,
-    )
-    .await
+    process_file(ctx, path).await
 }
 
 async fn process_file(
-    http_client: &Client,
-    pg_client: &PgClient,
+    ctx: &crate::config::ProcessingContext<'_>,
     path: &Path,
-    model_name: &str,
-    prompt: &str,
-    timeout: u64,
-    host_manager: &OllamaHostManager,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
+    let http_client = ctx.http_client;
+    let pg_client = ctx.pg_client;
+    let model_name = ctx.model_name;
+    let prompt = ctx.prompt;
+    let ollama_manager = ctx.ollama_manager;
+    let llamacpp_manager = ctx.llamacpp_manager;
+    let timeout = ctx.timeout;
+
     match extract_uuid_from_preview_filename(
         path.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown"),
     ) {
         Ok(_asset_id) => {
-            let analysis =
-                analyze_image(http_client, path, model_name, prompt, timeout, host_manager).await?;
+            let analysis = match (ollama_manager, llamacpp_manager) {
+                (Some(manager), _) => {
+                    ollama_analyze_image(http_client, path, model_name, prompt, timeout, manager)
+                        .await?
+                }
+                (_, Some(manager)) => {
+                    llamacpp_analyze_image(http_client, path, model_name, prompt, timeout, manager)
+                        .await?
+                }
+                (None, None) => return Err(ImageAnalysisError::AllHostsUnavailable),
+            };
             update_or_create_asset_description(pg_client, analysis.asset_id, &analysis.description)
                 .await?;
             Ok(analysis)
@@ -163,6 +165,29 @@ pub async fn process_files_concurrently(
     locale: &str,
     progress: Arc<Mutex<SimpleProgress>>,
 ) -> Vec<(String, Result<ImageAnalysisResult, ImageAnalysisError>)> {
+    // Create host managers once for all files to preserve unavailable host state
+    let unavailable_duration = Duration::from_secs(args.unavailable_duration);
+
+    let ollama_manager: Option<Arc<OllamaHostManager>> = if args.interface == Interface::Ollama {
+        Some(Arc::new(OllamaHostManager::new(
+            args.hosts.clone(),
+            unavailable_duration,
+        )))
+    } else {
+        None
+    };
+
+    let llamacpp_manager: Option<Arc<LlamaCppHostManager>> =
+        if args.interface == Interface::Llamacpp {
+            Some(Arc::new(LlamaCppHostManager::new(
+                args.hosts.clone(),
+                args.api_key.clone(),
+                unavailable_duration,
+            )))
+        } else {
+            None
+        };
+
     stream::iter(files.into_iter().map(|path| {
         let http_client = http_client.clone();
         let pg_client = Arc::clone(pg_client);
@@ -173,10 +198,9 @@ pub async fn process_files_concurrently(
         let ignore_existing = args.ignore_existing;
         let path_clone = path.clone();
         let timeout = args.timeout;
-        let host_manager = OllamaHostManager::new(
-            args.ollama_hosts.clone(),
-            std::time::Duration::from_secs(args.unavailable_duration),
-        );
+        let ollama_manager = ollama_manager.clone();
+        let llamacpp_manager = llamacpp_manager.clone();
+
         async move {
             rust_i18n::set_locale(&lang);
             let filename = path_clone
@@ -189,28 +213,21 @@ pub async fn process_files_concurrently(
                 progress_guard
                     .set_message(&rust_i18n::t!("progress.processing", filename = filename));
             }
+
+            let ctx = crate::config::ProcessingContext {
+                http_client: &http_client,
+                pg_client: &pg_client,
+                model_name: &model_name,
+                prompt: &prompt,
+                timeout,
+                ollama_manager: ollama_manager.as_ref(),
+                llamacpp_manager: llamacpp_manager.as_ref(),
+            };
+
             let result = if ignore_existing {
-                process_file(
-                    &http_client,
-                    &pg_client,
-                    &path_clone,
-                    &model_name,
-                    &prompt,
-                    timeout,
-                    &host_manager,
-                )
-                .await
+                process_file(&ctx, &path_clone).await
             } else {
-                process_file_with_existing_check(
-                    &http_client,
-                    &pg_client,
-                    &path_clone,
-                    &model_name,
-                    &prompt,
-                    timeout,
-                    &host_manager,
-                )
-                .await
+                process_file_with_existing_check(&ctx, &path_clone).await
             };
             {
                 let mut progress_guard = progress.lock().await;
@@ -352,10 +369,13 @@ fn format_error_message(error: &ImageAnalysisError, filename: &str) -> String {
             rust_i18n::t!("error.database_error", error = error).to_string()
         }
         ImageAnalysisError::AllHostsUnavailable => {
-            rust_i18n::t!("error.all_ollama_hosts_unavailable").to_string()
+            rust_i18n::t!("error.all_hosts_unavailable").to_string()
         }
         ImageAnalysisError::OllamaRequestTimeout => {
             rust_i18n::t!("error.ollama_request_timeout").to_string()
+        }
+        ImageAnalysisError::LlamaCppRequestTimeout => {
+            rust_i18n::t!("error.llamacpp_request_timeout").to_string()
         }
         _ => rust_i18n::t!("error.critical_processing_error", filename = filename).to_string(),
     }
@@ -395,7 +415,7 @@ fn print_statistics(
 
 fn print_error_recommendations() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.error_recommendations"));
-    println!("• {}", rust_i18n::t!("recommendation.check_ollama_status"));
+    println!("• {}", rust_i18n::t!("recommendation.check_service_status"));
     println!("• {}", rust_i18n::t!("recommendation.check_file_sizes"));
     println!("• {}", rust_i18n::t!("recommendation.reduce_concurrency"));
     println!("• {}", rust_i18n::t!("recommendation.use_monitor_mode"));
@@ -407,6 +427,6 @@ fn print_error_recommendations() -> Result<(), Box<dyn std::error::Error>> {
         "• {}",
         rust_i18n::t!("recommendation.check_immich_structure")
     );
-    println!("• {}", rust_i18n::t!("recommendation.check_ollama_servers"));
+    println!("• {}", rust_i18n::t!("recommendation.check_ai_servers"));
     Ok(())
 }

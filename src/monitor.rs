@@ -1,10 +1,12 @@
 use crate::{
+    args::Interface,
     config::MonitorConfig,
-    database::update_or_create_asset_description,
     error::ImageAnalysisError,
-    ollama::{OllamaHostManager, analyze_image},
-    utils::{extract_uuid_from_preview_filename, handle_processing_error},
+    llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
+    ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
+    utils::extract_uuid_from_preview_filename,
 };
+use log::error;
 use notify::{
     event::ModifyKind,
     {Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher},
@@ -28,13 +30,17 @@ use tokio_postgres::Client as PgClient;
 
 /// Process new file with stability checking
 pub async fn process_new_file(
-    http_client: &Client,
-    pg_client: &PgClient,
-    model_name: &str,
+    ctx: &crate::config::ProcessingContext<'_>,
     image_path: &Path,
-    prompt: &str,
     config: &crate::config::FileProcessingConfig,
 ) -> Result<(), ImageAnalysisError> {
+    let http_client = ctx.http_client;
+    let pg_client = ctx.pg_client;
+    let model_name = ctx.model_name;
+    let prompt = ctx.prompt;
+    let ollama_manager = ctx.ollama_manager;
+    let llamacpp_manager = ctx.llamacpp_manager;
+
     let filename = image_path
         .file_name()
         .and_then(|n| n.to_str())
@@ -85,27 +91,45 @@ pub async fn process_new_file(
         );
         return Ok(());
     }
-    let host_manager = OllamaHostManager::new(
-        config.ollama_hosts.clone(),
-        Duration::from_secs(config.unavailable_duration),
-    );
-    match analyze_image(
-        http_client,
-        image_path,
-        model_name,
-        prompt,
-        config.request_timeout,
-        &host_manager,
-    )
-    .await
-    {
+
+    let result = match (ollama_manager, llamacpp_manager) {
+        (Some(manager), _) => {
+            ollama_analyze_image(
+                http_client,
+                image_path,
+                model_name,
+                prompt,
+                config.request_timeout,
+                manager,
+            )
+            .await
+        }
+        (_, Some(manager)) => {
+            llamacpp_analyze_image(
+                http_client,
+                image_path,
+                model_name,
+                prompt,
+                config.request_timeout,
+                manager,
+            )
+            .await
+        }
+        (None, None) => Err(ImageAnalysisError::AllHostsUnavailable),
+    };
+
+    match result {
         Ok(analysis) => {
             println!(
                 "{}",
                 rust_i18n::t!("monitor.processing_success", filename = filename)
             );
-            update_or_create_asset_description(pg_client, analysis.asset_id, &analysis.description)
-                .await?;
+            crate::database::update_or_create_asset_description(
+                pg_client,
+                analysis.asset_id,
+                &analysis.description,
+            )
+            .await?;
             println!(
                 "{}",
                 rust_i18n::t!("monitor.database_updated", filename = filename)
@@ -113,7 +137,7 @@ pub async fn process_new_file(
             Ok(())
         }
         Err(e) => {
-            handle_processing_error(&e, &filename);
+            crate::utils::handle_processing_error(&e, &filename);
             Err(e)
         }
     }
@@ -189,6 +213,30 @@ pub async fn monitor_folder(
             let _ = stop_tx.send(()).await;
         }
     });
+
+    // Create host managers once for monitor session to preserve unavailable host state
+    let unavailable_duration = Duration::from_secs(config.unavailable_duration);
+
+    let ollama_manager: Option<Arc<OllamaHostManager>> = if config.interface == Interface::Ollama {
+        Some(Arc::new(OllamaHostManager::new(
+            config.hosts.clone(),
+            unavailable_duration,
+        )))
+    } else {
+        None
+    };
+
+    let llamacpp_manager: Option<Arc<LlamaCppHostManager>> =
+        if config.interface == Interface::Llamacpp {
+            Some(Arc::new(LlamaCppHostManager::new(
+                config.hosts.clone(),
+                config.api_key.clone(),
+                unavailable_duration,
+            )))
+        } else {
+            None
+        };
+
     let processing_files = Arc::new(Mutex::new(HashSet::<String>::new()));
     let mut last_events: HashMap<String, Instant> = HashMap::new();
     let mut interval = tokio::time::interval(Duration::from_millis(100));
@@ -207,77 +255,107 @@ pub async fn monitor_folder(
                             if let EventKind::Create(_) | EventKind::Modify(ModifyKind::Data(_)) = event.kind
                                 && let Some(path) = event.paths.first() {
                                     let path = path.as_path();
+
                                     if path.is_file()
-                                        && let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                                            let filename = filename.to_string();
-                                            if !filename.contains("-preview.") {
+                                        && let Some(filename) = path.file_name().and_then(|n| n.to_str())
+                                    {
+                                        let filename = filename.to_string();
+
+                                        if !filename.contains("-preview.") {
+                                            continue;
+                                        }
+
+                                        let now = Instant::now();
+                                        let cooldown_duration = Duration::from_secs(config.event_cooldown);
+
+                                        if let Some(last_time) = last_events.get(&filename)
+                                            && now.duration_since(*last_time) < cooldown_duration
+                                        {
+                                            println!("{}", rust_i18n::t!("monitor.skipping_duplicate_event",
+                                                filename = filename,
+                                                cooldown = config.event_cooldown.to_string()
+                                            ));
+                                            continue;
+                                        }
+
+                                        last_events.insert(filename.clone(), now);
+
+                                        {
+                                            let files = processing_files.lock().expect("Failed to lock processing files");
+                                            if files.contains(&filename) {
+                                                println!("{}", rust_i18n::t!("monitor.file_already_processing", filename = filename));
                                                 continue;
                                             }
-                                            let now = Instant::now();
-                                            let cooldown_duration = Duration::from_secs(config.event_cooldown);
-                                            if let Some(last_time) = last_events.get(&filename)
-                                                && now.duration_since(*last_time) < cooldown_duration {
-                                                    println!("{}", rust_i18n::t!("monitor.skipping_duplicate_event",
-                                                        filename = filename,
-                                                        cooldown = config.event_cooldown.to_string()
-                                                    ));
-                                                    continue;
-                                                }
-                                            last_events.insert(filename.clone(), now);
+                                        }
+
+                                        println!("{}", rust_i18n::t!("monitor.file_queued", filename = filename));
+
+                                        {
+                                            let mut files = processing_files.lock().expect("Failed to lock processing files");
+                                            files.insert(filename.clone());
+                                        }
+
+                                        let http_client_clone = http_client.clone();
+                                        let pg_client_clone = Arc::clone(&pg_client);
+                                        let model_name_clone = model_name.to_string();
+                                        let path_clone = path.to_path_buf();
+                                        let filename_clone = filename.clone();
+                                        let processing_files_clone = Arc::clone(&processing_files);
+                                        let prompt_clone = prompt.to_string();
+                                        let ollama_manager_clone = ollama_manager.clone();
+                                        let llamacpp_manager_clone = llamacpp_manager.clone();
+                                        let config_clone = config.clone();
+
+                                        let file_processing_config = crate::config::FileProcessingConfig {
+                                            file_write_timeout: config.file_write_timeout,
+                                            file_check_interval: config.file_check_interval,
+                                            ignore_existing: config.ignore_existing,
+                                            request_timeout: config.timeout,
+                                        };
+
+                                        tokio::spawn(async move {
+                                            rust_i18n::set_locale(&config_clone.lang);
+
+                                        let ctx = crate::config::ProcessingContext {
+                                            http_client: &http_client_clone,
+                                            pg_client: &pg_client_clone,
+                                            model_name: &model_name_clone,
+                                            prompt: &prompt_clone,
+                                            timeout: file_processing_config.request_timeout,
+                                            ollama_manager: ollama_manager_clone.as_ref(),
+                                            llamacpp_manager: llamacpp_manager_clone.as_ref(),
+                                        };
+                                        let result = process_new_file(
+                                            &ctx,
+                                            &path_clone,
+                                            &file_processing_config,
+                                        )
+                                        .await;
+
                                             {
-                                                let files = processing_files.lock().expect("Failed to lock processing files");
-                                                if files.contains(&filename) {
-                                                    println!("{}", rust_i18n::t!("monitor.file_already_processing", filename = filename));
-                                                    continue;
+                                                let mut files = processing_files_clone.lock().expect("Failed to lock processing files");
+                                                files.remove(&filename_clone);
+                                            }
+
+                                            if let Err(e) = result {
+                                                if let ImageAnalysisError::AlreadyProcessed { filename: _ } = e {
+                                                    // Expected when ignoring existing files
+                                                } else {
+                                                    error!(
+                                                        "{}",
+                                                        rust_i18n::t!("error.background_processing_error", filename = filename_clone)
+                                                    );
                                                 }
                                             }
-                                            println!("{}", rust_i18n::t!("monitor.file_queued", filename = filename));
-                                            {
-                                                let mut files = processing_files.lock().expect("Failed to lock processing files");
-                                                files.insert(filename.clone());
-                                            }
-                                            let http_client_clone = http_client.clone();
-                                            let pg_client_clone = Arc::clone(&pg_client);
-                                            let model_name_clone = model_name.to_string();
-                                            let path_clone = path.to_path_buf();
-                                            let filename_clone = filename.clone();
-                                            let processing_files_clone = Arc::clone(&processing_files);
-                                            let prompt_clone = prompt.to_string();
-                                            let config_clone = config.clone();
-                                            tokio::spawn(async move {
-                                                rust_i18n::set_locale(&config_clone.lang);
-                                                let result = process_new_file(
-                                                    &http_client_clone,
-                                                    &pg_client_clone,
-                                                    &model_name_clone,
-                                                    &path_clone,
-                                                    &prompt_clone,
-                                                    &crate::config::FileProcessingConfig {
-                                                        file_write_timeout: config_clone.file_write_timeout,
-                                                        file_check_interval: config_clone.file_check_interval,
-                                                        ignore_existing: config_clone.ignore_existing,
-                                                        ollama_hosts: config_clone.ollama_hosts.clone(),
-                                                        unavailable_duration: config_clone.unavailable_duration,
-                                                        request_timeout: config_clone.timeout
-                                                    },
-                                                ).await;
-                                                {
-                                                    let mut files = processing_files_clone.lock().expect("Failed to lock processing files");
-                                                    files.remove(&filename_clone);
-                                                }
-                                                if let Err(e) = result {
-                                                    if let ImageAnalysisError::AlreadyProcessed { filename: _ } = e {
-                                                        // Expected when ignoring existing files
-                                                    } else {
-                                                        eprintln!("{}", rust_i18n::t!("error.background_processing_error", filename = filename_clone));
-                                                    }
-                                                }
-                                            });
+                                        });
                                     }
-                            }
+                                }
                         }
                         Err(e) => {
-                            eprintln!("{}", rust_i18n::t!("error.filesystem_monitoring_error_details", error = e.to_string()));
+                            error!(
+                                "{}",
+                                rust_i18n::t!("error.filesystem_monitoring_error_details", error = e.to_string())
+                            );
                         }
                     }
                 }
