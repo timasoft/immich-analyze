@@ -261,7 +261,7 @@ pub async fn monitor_folder(
                                     {
                                         let filename = filename.to_string();
 
-                                        if !filename.contains("-preview.") {
+                                        if !filename.contains("_preview.") && !filename.contains("-preview.") {
                                             continue;
                                         }
 
