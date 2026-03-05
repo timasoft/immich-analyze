@@ -105,14 +105,8 @@ pub fn handle_no_files(
 }
 
 async fn process_file_with_existing_check(
-    http_client: &Client,
-    pg_client: &PgClient,
+    ctx: &crate::config::ProcessingContext<'_>,
     path: &Path,
-    model_name: &str,
-    prompt: &str,
-    timeout: u64,
-    ollama_manager: Option<&Arc<OllamaHostManager>>,
-    llamacpp_manager: Option<&Arc<LlamaCppHostManager>>,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     let filename = path
         .file_name()
@@ -120,32 +114,24 @@ async fn process_file_with_existing_check(
         .unwrap_or("unknown")
         .to_string();
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
-    if asset_has_description(pg_client, asset_id).await? {
+    if asset_has_description(ctx.pg_client, asset_id).await? {
         return Err(ImageAnalysisError::AlreadyProcessed { filename });
     }
-    process_file(
-        http_client,
-        pg_client,
-        path,
-        model_name,
-        prompt,
-        timeout,
-        ollama_manager,
-        llamacpp_manager,
-    )
-    .await
+    process_file(ctx, path).await
 }
 
 async fn process_file(
-    http_client: &Client,
-    pg_client: &PgClient,
+    ctx: &crate::config::ProcessingContext<'_>,
     path: &Path,
-    model_name: &str,
-    prompt: &str,
-    timeout: u64,
-    ollama_manager: Option<&Arc<OllamaHostManager>>,
-    llamacpp_manager: Option<&Arc<LlamaCppHostManager>>,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
+    let http_client = ctx.http_client;
+    let pg_client = ctx.pg_client;
+    let model_name = ctx.model_name;
+    let prompt = ctx.prompt;
+    let ollama_manager = ctx.ollama_manager;
+    let llamacpp_manager = ctx.llamacpp_manager;
+    let timeout = ctx.timeout;
+
     match extract_uuid_from_preview_filename(
         path.file_name()
             .and_then(|n| n.to_str())
@@ -227,30 +213,21 @@ pub async fn process_files_concurrently(
                 progress_guard
                     .set_message(&rust_i18n::t!("progress.processing", filename = filename));
             }
+
+            let ctx = crate::config::ProcessingContext {
+                http_client: &http_client,
+                pg_client: &pg_client,
+                model_name: &model_name,
+                prompt: &prompt,
+                timeout,
+                ollama_manager: ollama_manager.as_ref(),
+                llamacpp_manager: llamacpp_manager.as_ref(),
+            };
+
             let result = if ignore_existing {
-                process_file(
-                    &http_client,
-                    &pg_client,
-                    &path_clone,
-                    &model_name,
-                    &prompt,
-                    timeout,
-                    ollama_manager.as_ref(),
-                    llamacpp_manager.as_ref(),
-                )
-                .await
+                process_file(&ctx, &path_clone).await
             } else {
-                process_file_with_existing_check(
-                    &http_client,
-                    &pg_client,
-                    &path_clone,
-                    &model_name,
-                    &prompt,
-                    timeout,
-                    ollama_manager.as_ref(),
-                    llamacpp_manager.as_ref(),
-                )
-                .await
+                process_file_with_existing_check(&ctx, &path_clone).await
             };
             {
                 let mut progress_guard = progress.lock().await;

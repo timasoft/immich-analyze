@@ -30,15 +30,17 @@ use tokio_postgres::Client as PgClient;
 
 /// Process new file with stability checking
 pub async fn process_new_file(
-    http_client: &Client,
-    pg_client: &PgClient,
-    model_name: &str,
+    ctx: &crate::config::ProcessingContext<'_>,
     image_path: &Path,
-    prompt: &str,
     config: &crate::config::FileProcessingConfig,
-    ollama_manager: Option<&Arc<OllamaHostManager>>,
-    llamacpp_manager: Option<&Arc<LlamaCppHostManager>>,
 ) -> Result<(), ImageAnalysisError> {
+    let http_client = ctx.http_client;
+    let pg_client = ctx.pg_client;
+    let model_name = ctx.model_name;
+    let prompt = ctx.prompt;
+    let ollama_manager = ctx.ollama_manager;
+    let llamacpp_manager = ctx.llamacpp_manager;
+
     let filename = image_path
         .file_name()
         .and_then(|n| n.to_str())
@@ -314,17 +316,21 @@ pub async fn monitor_folder(
                                         tokio::spawn(async move {
                                             rust_i18n::set_locale(&config_clone.lang);
 
-                                            let result = process_new_file(
-                                                &http_client_clone,
-                                                &pg_client_clone,
-                                                &model_name_clone,
-                                                &path_clone,
-                                                &prompt_clone,
-                                                &file_processing_config,
-                                                ollama_manager_clone.as_ref(),
-                                                llamacpp_manager_clone.as_ref(),
-                                            )
-                                            .await;
+                                        let ctx = crate::config::ProcessingContext {
+                                            http_client: &http_client_clone,
+                                            pg_client: &pg_client_clone,
+                                            model_name: &model_name_clone,
+                                            prompt: &prompt_clone,
+                                            timeout: file_processing_config.request_timeout,
+                                            ollama_manager: ollama_manager_clone.as_ref(),
+                                            llamacpp_manager: llamacpp_manager_clone.as_ref(),
+                                        };
+                                        let result = process_new_file(
+                                            &ctx,
+                                            &path_clone,
+                                            &file_processing_config,
+                                        )
+                                        .await;
 
                                             {
                                                 let mut files = processing_files_clone.lock().expect("Failed to lock processing files");
