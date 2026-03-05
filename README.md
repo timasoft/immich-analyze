@@ -289,6 +289,8 @@ RUST_LOG=debug immich-analyze --combined ...
 - For llama.cpp: `curl http://localhost:8080/health`
 
 ## TODO:
+- [+] Add llama.cpp support
+- [ ] Add support for Immich API
 - [ ] Add waiting list
 - [ ] Rename ignore-existing option/variable to overwrite-existing
 - [ ] Add JWT support
