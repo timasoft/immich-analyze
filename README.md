@@ -292,7 +292,7 @@ RUST_LOG=debug immich-analyze --combined ...
 - [x] Add llama.cpp support
 - [ ] Add support for Immich API
 - [ ] Add waiting list
-- [ ] Rename ignore-existing option/variable to overwrite-existing
+- [x] Rename ignore-existing option/variable to overwrite-existing
 - [ ] Add JWT support
 - [ ] Add NixOS service module
 - [ ] Add video support
