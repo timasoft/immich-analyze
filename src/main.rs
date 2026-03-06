@@ -109,7 +109,7 @@ async fn run_monitor_mode(
     locale: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.monitor_mode_activated"));
-    if args.ignore_existing {
+    if args.overwrite_existing {
         println!("{}", rust_i18n::t!("main.ignore_existing_enabled"));
     }
     let monitor_config = MonitorConfig {
@@ -118,7 +118,7 @@ async fn run_monitor_mode(
         event_cooldown: args.event_cooldown,
         timeout: args.timeout,
         lang: locale.to_string(),
-        ignore_existing: args.ignore_existing,
+        overwrite_existing: args.overwrite_existing,
         hosts: args.hosts.clone(),
         interface: args.interface.clone(),
         api_key: args.api_key.clone(),
@@ -149,7 +149,7 @@ async fn run_batch_mode(
         )
     );
     let preview_files = get_immich_preview_files(immich_root)?;
-    handle_no_files(&preview_files, args.ignore_existing, immich_root)?;
+    handle_no_files(&preview_files, args.overwrite_existing, immich_root)?;
     println!(
         "{}",
         rust_i18n::t!(
@@ -172,7 +172,7 @@ async fn run_batch_mode(
         "{}",
         rust_i18n::t!("main.timeout", seconds = args.timeout.to_string())
     );
-    if args.ignore_existing {
+    if args.overwrite_existing {
         println!("{}", rust_i18n::t!("main.ignore_existing_enabled"));
     }
     let http_client = reqwest::Client::builder()

@@ -53,8 +53,8 @@ if [ -n "$IMMICH_ANALYZE_PROMPT" ]; then
     args+=("--prompt" "$IMMICH_ANALYZE_PROMPT")
 fi
 
-if [ "${IMMICH_ANALYZE_IGNORE_EXISTING:-false}" = "true" ]; then
-    args+=("--ignore-existing")
+if [ "${IMMICH_ANALYZE_OVERWRITE_EXISTING:-false}" = "true" ]; then
+    args+=("--overwrite-existing")
 fi
 
 if [ -n "$IMMICH_ANALYZE_LANG" ]; then
