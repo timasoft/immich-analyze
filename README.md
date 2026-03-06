@@ -148,7 +148,7 @@ nix run github:timasoft/immich-analyze --immich-root /path/to/immich/data --post
 | `IMMICH_ANALYZE_API_KEY` | API key for llama.cpp server authentication | *(none)* |
 | `IMMICH_ANALYZE_MODEL_NAME` | Model name for image analysis | `qwen3-vl:4b-thinking-q4_K_M` |
 | `IMMICH_ANALYZE_PROMPT` | Prompt for generating image descriptions | Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long. |
-| `IMMICH_ANALYZE_IGNORE_EXISTING` | If true, the program will overwrite existing descriptions | `false` |
+| `IMMICH_ANALYZE_OVERWRITE_EXISTING` | If true, the program will overwrite existing descriptions | `false` |
 | `IMMICH_ANALYZE_LANG` | Interface language for the application (en, ru) | `en` |
 | `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent requests | `4` |
 | `IMMICH_ANALYZE_UNAVAILABLE_DURATION` | Host availability check interval in seconds | `60` |
@@ -292,7 +292,7 @@ RUST_LOG=debug immich-analyze --combined ...
 - [x] Add llama.cpp support
 - [ ] Add support for Immich API
 - [ ] Add waiting list
-- [ ] Rename ignore-existing option/variable to overwrite-existing
+- [x] Rename ignore-existing option/variable to overwrite-existing
 - [ ] Add JWT support
 - [ ] Add NixOS service module
 - [ ] Add video support

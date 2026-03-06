@@ -41,9 +41,9 @@ main.no_images_found:
 main.all_files_already_processed:
   en: " All found images are already in the database"
   ru: " Все найденные изображения уже есть в базе данных"
-main.all_files_already_processed_ignore_existing:
-  en: " All found images are already in the database. Use --ignore-existing to reprocess them."
-  ru: " Все найденные изображения уже есть в базе данных. Используйте --ignore-existing для повторной обработки."
+main.overwrite_existing_enabled:
+  en: " Overwrite existing database entries mode enabled"
+  ru: " Включен режим перезаписи существующих записей в базе данных"
 main.monitor_hint:
   en: " Tip: to start monitoring new files, run with -m parameter"
   ru: " Подсказка: чтобы начать мониторинг новых файлов, запустите с параметром -m"

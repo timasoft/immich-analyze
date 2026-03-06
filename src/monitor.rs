@@ -82,7 +82,7 @@ pub async fn process_new_file(
         rust_i18n::t!("monitor.file_stable", filename = filename)
     );
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
-    if !config.ignore_existing
+    if !config.overwrite_existing
         && crate::database::asset_has_description(pg_client, asset_id).await?
     {
         println!(
@@ -309,7 +309,7 @@ pub async fn monitor_folder(
                                         let file_processing_config = crate::config::FileProcessingConfig {
                                             file_write_timeout: config.file_write_timeout,
                                             file_check_interval: config.file_check_interval,
-                                            ignore_existing: config.ignore_existing,
+                                            overwrite_existing: config.overwrite_existing,
                                             request_timeout: config.timeout,
                                         };
 
@@ -349,7 +349,7 @@ pub async fn monitor_folder(
                                             }
                                         });
                                     }
-                                }
+                            }
                         }
                         Err(e) => {
                             error!(

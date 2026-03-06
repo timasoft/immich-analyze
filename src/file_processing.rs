@@ -77,11 +77,11 @@ pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, Imag
 
 pub fn handle_no_files(
     files: &[PathBuf],
-    ignore_existing: bool,
+    overwrite_existing: bool,
     immich_root: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if files.is_empty() {
-        if ignore_existing {
+        if overwrite_existing {
             println!(
                 "{}",
                 rust_i18n::t!(
@@ -195,7 +195,7 @@ pub async fn process_files_concurrently(
         let prompt = args.prompt.clone();
         let progress = Arc::clone(&progress);
         let lang = locale.to_string();
-        let ignore_existing = args.ignore_existing;
+        let overwrite_existing = args.overwrite_existing;
         let path_clone = path.clone();
         let timeout = args.timeout;
         let ollama_manager = ollama_manager.clone();
@@ -224,7 +224,7 @@ pub async fn process_files_concurrently(
                 llamacpp_manager: llamacpp_manager.as_ref(),
             };
 
-            let result = if ignore_existing {
+            let result = if overwrite_existing {
                 process_file(&ctx, &path_clone).await
             } else {
                 process_file_with_existing_check(&ctx, &path_clone).await

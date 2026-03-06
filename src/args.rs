@@ -15,9 +15,9 @@ pub struct Args {
     /// Enable combined mode: process existing images then monitor for new ones
     #[arg(short, long)]
     pub combined: bool,
-    /// Ignore existing entries in database
+    /// Overwrite existing entries in database (process all files regardless of existing descriptions)
     #[arg(short, long)]
-    pub ignore_existing: bool,
+    pub overwrite_existing: bool,
     /// Path to Immich root directory (containing upload/, thumbs/ folders)
     #[arg(long, default_value = "/var/lib/immich")]
     pub immich_root: String,
