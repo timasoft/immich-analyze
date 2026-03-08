@@ -50,7 +50,7 @@ pub struct Args {
     #[arg(long, default_value = "http://localhost:11434", value_delimiter = ',')]
     pub hosts: Vec<String>,
     /// API key for authentication (llama.cpp server)
-    #[arg(long, env = "LLAMACPP_API_KEY", hide_env_values = true)]
+    #[arg(long, env = "IMMICH_ANALYZE_API_KEY", hide_env_values = true)]
     pub api_key: Option<String>,
     /// Maximum number of concurrent requests
     #[arg(long, default_value_t = 4)]
