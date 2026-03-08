@@ -1,7 +1,10 @@
 use crate::{
     args::Interface,
-    database::{ImageAnalysisResult, asset_has_description, update_or_create_asset_description},
+    config::ProcessingContext,
+    data_access::DataAccess,
+    database::ImageAnalysisResult,
     error::ImageAnalysisError,
+    immich_api::AssetRef,
     llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
     ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     progress::SimpleProgress,
@@ -16,31 +19,28 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Mutex;
-use tokio_postgres::Client as PgClient;
 
-/// Get all preview image files from Immich thumbs directory using std::fs
+/// Get all preview image files from Immich thumbs directory using std::fs.
+///
+/// This function is used in database mode to scan the filesystem for preview files.
 pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, ImageAnalysisError> {
     let thumbs_dir = immich_root.join("thumbs");
     if !thumbs_dir.exists() {
         return Err(ImageAnalysisError::InvalidImmichStructure {
-            error: format!(
-                "{}",
-                rust_i18n::t!(
-                    "error.thumbs_directory_not_found",
-                    path = thumbs_dir.display().to_string()
-                )
-            ),
+            error: rust_i18n::t!(
+                "error.thumbs_directory_not_found",
+                path = thumbs_dir.display().to_string()
+            )
+            .to_string(),
         });
     }
     if !thumbs_dir.is_dir() {
         return Err(ImageAnalysisError::InvalidImmichStructure {
-            error: format!(
-                "{}",
-                rust_i18n::t!(
-                    "error.thumbs_path_not_directory",
-                    path = thumbs_dir.display().to_string()
-                )
-            ),
+            error: rust_i18n::t!(
+                "error.thumbs_path_not_directory",
+                path = thumbs_dir.display().to_string()
+            )
+            .to_string(),
         });
     }
     let mut preview_files = Vec::new();
@@ -75,37 +75,8 @@ pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, Imag
     Ok(preview_files)
 }
 
-pub fn handle_no_files(
-    files: &[PathBuf],
-    overwrite_existing: bool,
-    immich_root: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if files.is_empty() {
-        if overwrite_existing {
-            println!(
-                "{}",
-                rust_i18n::t!(
-                    "main.no_new_images_found_ignore_existing",
-                    path = immich_root.display().to_string()
-                )
-            );
-        } else {
-            println!(
-                "{}",
-                rust_i18n::t!(
-                    "main.no_new_images_found",
-                    path = immich_root.display().to_string()
-                )
-            );
-        }
-        println!("{}", rust_i18n::t!("main.monitor_hint"));
-        std::process::exit(0);
-    }
-    Ok(())
-}
-
 async fn process_file_with_existing_check(
-    ctx: &crate::config::ProcessingContext<'_>,
+    ctx: &ProcessingContext<'_>,
     path: &Path,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     let filename = path
@@ -114,53 +85,74 @@ async fn process_file_with_existing_check(
         .unwrap_or("unknown")
         .to_string();
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
-    if asset_has_description(ctx.pg_client, asset_id).await? {
+
+    if ctx.data_access.has_description(&asset_id).await? {
         return Err(ImageAnalysisError::AlreadyProcessed { filename });
     }
     process_file(ctx, path).await
 }
 
 async fn process_file(
-    ctx: &crate::config::ProcessingContext<'_>,
+    ctx: &ProcessingContext<'_>,
     path: &Path,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     let http_client = ctx.http_client;
-    let pg_client = ctx.pg_client;
+    let data_access = ctx.data_access;
     let model_name = ctx.model_name;
     let prompt = ctx.prompt;
     let ollama_manager = ctx.ollama_manager;
     let llamacpp_manager = ctx.llamacpp_manager;
     let timeout = ctx.timeout;
 
-    match extract_uuid_from_preview_filename(
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown"),
-    ) {
-        Ok(_asset_id) => {
-            let analysis = match (ollama_manager, llamacpp_manager) {
-                (Some(manager), _) => {
-                    ollama_analyze_image(http_client, path, model_name, prompt, timeout, manager)
-                        .await?
-                }
-                (_, Some(manager)) => {
-                    llamacpp_analyze_image(http_client, path, model_name, prompt, timeout, manager)
-                        .await?
-                }
-                (None, None) => return Err(ImageAnalysisError::AllHostsUnavailable),
-            };
-            update_or_create_asset_description(pg_client, analysis.asset_id, &analysis.description)
-                .await?;
-            Ok(analysis)
+    let filename = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let asset_id = extract_uuid_from_preview_filename(&filename)?;
+
+    let preview_path = data_access.get_preview_path(&asset_id).await?;
+
+    let analysis = match (ollama_manager, llamacpp_manager) {
+        (Some(manager), _) => {
+            ollama_analyze_image(
+                http_client,
+                &preview_path,
+                model_name,
+                prompt,
+                timeout,
+                manager,
+            )
+            .await?
         }
-        Err(e) => Err(e),
-    }
+        (_, Some(manager)) => {
+            llamacpp_analyze_image(
+                http_client,
+                &preview_path,
+                model_name,
+                prompt,
+                timeout,
+                manager,
+            )
+            .await?
+        }
+        (None, None) => return Err(ImageAnalysisError::AllHostsUnavailable),
+    };
+
+    let _ = data_access.cleanup_preview(&preview_path).await;
+
+    data_access
+        .update_description(&analysis.asset_id, &analysis.description)
+        .await?;
+
+    Ok(analysis)
 }
 
 pub async fn process_files_concurrently(
-    files: Vec<PathBuf>,
+    assets: Vec<AssetRef>,
     http_client: &Client,
-    pg_client: &Arc<PgClient>,
+    data_access: &DataAccess,
     args: &crate::args::Args,
     locale: &str,
     progress: Arc<Mutex<SimpleProgress>>,
@@ -188,22 +180,43 @@ pub async fn process_files_concurrently(
             None
         };
 
-    stream::iter(files.into_iter().map(|path| {
+    stream::iter(assets.into_iter().map(|asset| {
         let http_client = http_client.clone();
-        let pg_client = Arc::clone(pg_client);
+        let data_access = data_access.clone();
         let model_name = args.model_name.clone();
         let prompt = args.prompt.clone();
         let progress = Arc::clone(&progress);
         let lang = locale.to_string();
         let overwrite_existing = args.overwrite_existing;
-        let path_clone = path.clone();
+        let asset_id = asset.id;
         let timeout = args.timeout;
         let ollama_manager = ollama_manager.clone();
         let llamacpp_manager = llamacpp_manager.clone();
 
         async move {
             rust_i18n::set_locale(&lang);
-            let filename = path_clone
+            let path = match data_access.get_preview_path(&asset_id).await {
+                Ok(p) => p,
+                Err(e) => {
+                    let filename = asset_id.to_string();
+                    {
+                        let mut progress_guard = progress.lock().await;
+                        progress_guard
+                            .set_message(&rust_i18n::t!("progress.error", filename = filename));
+                    }
+
+                    {
+                        let mut progress_guard = progress.lock().await;
+                        progress_guard.set_message_and_inc(&rust_i18n::t!(
+                            "progress.finished",
+                            filename = filename
+                        ));
+                    }
+
+                    return (filename, Err(e));
+                }
+            };
+            let filename = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
@@ -214,9 +227,9 @@ pub async fn process_files_concurrently(
                     .set_message(&rust_i18n::t!("progress.processing", filename = filename));
             }
 
-            let ctx = crate::config::ProcessingContext {
+            let ctx = ProcessingContext {
                 http_client: &http_client,
-                pg_client: &pg_client,
+                data_access: &data_access,
                 model_name: &model_name,
                 prompt: &prompt,
                 timeout,
@@ -225,9 +238,9 @@ pub async fn process_files_concurrently(
             };
 
             let result = if overwrite_existing {
-                process_file(&ctx, &path_clone).await
+                process_file(&ctx, &path).await
             } else {
-                process_file_with_existing_check(&ctx, &path_clone).await
+                process_file_with_existing_check(&ctx, &path).await
             };
             {
                 let mut progress_guard = progress.lock().await;
@@ -377,7 +390,13 @@ fn format_error_message(error: &ImageAnalysisError, filename: &str) -> String {
         ImageAnalysisError::LlamaCppRequestTimeout => {
             rust_i18n::t!("error.llamacpp_request_timeout").to_string()
         }
-        _ => rust_i18n::t!("error.critical_processing_error", filename = filename).to_string(),
+        e => {
+            format!(
+                "{}\n{}",
+                rust_i18n::t!("error.critical_processing_error", filename = filename),
+                e
+            )
+        }
     }
 }
 
