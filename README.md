@@ -6,12 +6,16 @@ AI-powered image description generator for Immich photo management system
 
 Immich Analyze automatically generates detailed descriptions for images in your Immich library using AI vision models via **Ollama** or **llama.cpp server**. This enhances search capabilities and organization by providing semantic understanding of image content.
 
+The application supports two data access modes:
+- **Database mode**: Direct PostgreSQL database access for reading/writing Immich metadata
+- **API mode**: Uses the Immich API (requires `IMMICH_API_URL` + `IMMICH_API_KEY`)
+
 ## Features
 
 - AI-powered image analysis using Ollama or llama.cpp server with vision-capable models
 - Multiple operation modes: batch processing, folder monitoring, or combined mode
 - Multi-host support with automatic failover for AI service endpoints
-- Direct integration with Immich PostgreSQL database
+- **Dual data access modes**: Direct PostgreSQL database access OR Immich API integration
 - Concurrent processing with configurable parallelism
 - Internationalization support (English and Russian)
 - Docker container support
@@ -19,11 +23,12 @@ Immich Analyze automatically generates detailed descriptions for images in your 
 
 ## Prerequisites
 
-- Immich instance with PostgreSQL database
+- Immich instance with either:
+  - PostgreSQL database access, OR
+  - Immich API endpoint with API key
 - AI service running a vision-capable model:
   - **Ollama** server (e.g., `qwen3-vl:4b-thinking-q4_K_M`), OR
   - **llama.cpp server** with OpenAI-compatible API endpoint
-- PostgreSQL database access for your Immich instance
 
 ## Installation
 
@@ -59,6 +64,7 @@ services:
     container_name: immich-analyze
     restart: unless-stopped
     volumes:
+      # Only required for database mode (to access /data/upload, /data/thumbs)
       - ${UPLOAD_LOCATION}:/data
       - /etc/localtime:/etc/localtime:ro
     env_file:
@@ -85,7 +91,12 @@ networks:
     external: true
 ```
 
-**Important notes about AI service integration:**
+**Important notes about configuration:**
+
+- **Data Access Mode**: You must provide EITHER:
+  - Database credentials (`DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE_NAME`) for direct PostgreSQL access, OR
+  - API credentials (`IMMICH_API_URL`, `IMMICH_API_KEY`) for Immich API access
+- **Volume mounts**: The `/data` volume mount is only required when using **database mode** (to access `upload/` and `thumbs/` directories). When using **API mode**, this volume can be omitted.
 - The `ollama` service is **optional** - you can remove it and use an external Ollama or llama.cpp server instead
 - Set `IMMICH_ANALYZE_INTERFACE` to `ollama` (default) or `llamacpp` depending on your backend
 - If using external service, modify `IMMICH_ANALYZE_HOSTS` to point to your server(s)
@@ -111,8 +122,15 @@ docker-compose up -d immich-analyze
 ### Nix
 
 If you're using Nix or NixOS, you can build and run the application directly:
+
+**Database mode:**
 ```bash
-nix run github:timasoft/immich-analyze --immich-root /path/to/immich/data --postgres-url "host=localhost user=your_postgres_user dbname=immich password=your_postgres_password" -c
+nix run github:timasoft/immich-analyze -- --data-access-mode database --immich-root /path/to/immich/data --postgres-url "host=localhost user=your_postgres_user dbname=immich password=your_postgres_password" -c
+```
+
+**API mode:**
+```bash
+IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:timasoft/immich-analyze -- --data-access-mode immich-api -c
 ```
 
 ### From Source
@@ -128,32 +146,56 @@ nix run github:timasoft/immich-analyze --immich-root /path/to/immich/data --post
    ```
 
 3. Run the application:
+
+   **Database mode:**
    ```bash
-   immich-analyze --immich-root /path/to/immich/data --postgres-url "host=localhost user=your_postgres_user dbname=immich password=your_postgres_password" -c
+   immich-analyze --data-access-mode database --immich-root /path/to/immich/data --postgres-url "host=localhost user=your_postgres_user dbname=immich password=your_postgres_password" -c
+   ```
+
+   **API mode:**
+   ```bash
+   IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key immich-analyze --data-access-mode immich-api -c
    ```
 
 ## Configuration
 
 ### Environment Variables (Docker)
 
+#### Data Access Configuration (choose ONE mode)
+
+| Variable | Description | Default | Required For |
+|----------|-------------|---------|-------------|
+| `DB_USERNAME` | PostgreSQL username | - | Database mode |
+| `DB_PASSWORD` | PostgreSQL password | - | Database mode |
+| `DB_DATABASE_NAME` | PostgreSQL database name | - | Database mode |
+| `DB_HOSTNAME` | PostgreSQL hostname | `database` | Database mode |
+| `DB_PORT` | PostgreSQL port | `5432` | Database mode |
+| `IMMICH_API_URL` | Immich API base URL | - | API mode |
+| `IMMICH_API_KEY` | Immich API authentication key | - | API mode |
+
+#### AI Service Configuration
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DB_USERNAME` | PostgreSQL username | Required |
-| `DB_PASSWORD` | PostgreSQL password | Required |
-| `DB_DATABASE_NAME` | PostgreSQL database name | Required |
-| `DB_HOSTNAME` | PostgreSQL hostname | `database` |
-| `DB_PORT` | PostgreSQL port | `5432` |
 | `IMMICH_ANALYZE_INTERFACE` | AI service interface type (`ollama` or `llamacpp`) | `ollama` |
 | `IMMICH_ANALYZE_HOSTS` | Comma-separated AI service host URLs | `http://localhost:11434` |
 | `IMMICH_ANALYZE_API_KEY` | API key for llama.cpp server authentication | *(none)* |
 | `IMMICH_ANALYZE_MODEL_NAME` | Model name for image analysis | `qwen3-vl:4b-thinking-q4_K_M` |
-| `IMMICH_ANALYZE_PROMPT` | Prompt for generating image descriptions | Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long. |
-| `IMMICH_ANALYZE_OVERWRITE_EXISTING` | If true, the program will overwrite existing descriptions | `false` |
+| `IMMICH_ANALYZE_PROMPT` | Prompt for generating image descriptions | *See below* |
+| `IMMICH_ANALYZE_API_POLL_INTERVAL` | Poll interval for API mode in seconds | `10` |
+
+#### Application Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `IMMICH_ANALYZE_OVERWRITE_EXISTING` | If true, overwrite existing descriptions | `false` |
 | `IMMICH_ANALYZE_LANG` | Interface language for the application (en, ru) | `en` |
-| `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent requests | `4` |
+| `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent AI requests | `4` |
 | `IMMICH_ANALYZE_UNAVAILABLE_DURATION` | Host availability check interval in seconds | `60` |
-| `IMMICH_ANALYZE_TIMEOUT` | Request timeout in seconds | `300` |
-| `RUST_LOG` | Logging level for debugging (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
+| `IMMICH_ANALYZE_TIMEOUT` | AI request timeout in seconds | `300` |
+| `RUST_LOG` | Logging level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
+
+> **Default prompt**: `Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long.`
 
 > **Backwards Compatibility**: The deprecated `IMMICH_ANALYZE_OLLAMA_HOSTS` variable is still supported and will be automatically mapped to `IMMICH_ANALYZE_HOSTS` when `IMMICH_ANALYZE_INTERFACE=ollama`.
 
@@ -167,12 +209,20 @@ Options:
           Enable folder monitoring mode
   -c, --combined
           Enable combined mode: process existing images then monitor for new ones
-  -i, --ignore-existing
-          Ignore existing entries in database
+  -o, --overwrite-existing
+          Overwrite existing entries in database (process all files regardless of existing descriptions)
       --immich-root <IMMICH_ROOT>
           Path to Immich root directory (containing upload/, thumbs/ folders) [default: /var/lib/immich]
       --postgres-url <POSTGRES_URL>
-          PostgreSQL connection string [default: "host=localhost user=postgres dbname=immich password=your_password"]
+          PostgreSQL connection string (used only in database mode) [default: "host=localhost user=postgres dbname=immich password=your_password"]
+  -d, --data-access-mode <DATA_ACCESS_MODE>
+          Data access mode: database (direct PostgreSQL) or api (Immich REST API) [default: database] [possible values: database, immich-api]
+      --immich-api-url <IMMICH_API_URL>
+          Immich API base URL (required when using api access mode) [env: IMMICH_API_URL=]
+      --immich-api-key <IMMICH_API_KEY>
+          Immich API authentication key (required when using api access mode) [env: IMMICH_API_KEY]
+      --api-poll-interval <API_POLL_INTERVAL>
+          API poll interval in seconds (for Immich API mode) [default: 10]
       --model-name <MODEL_NAME>
           Ollama model name for image analysis [default: qwen3-vl:4b-thinking-q4_K_M]
       --interface <INTERFACE>
@@ -180,7 +230,7 @@ Options:
       --hosts <HOSTS>
           Host URLs (Ollama or llama.cpp server) [default: http://localhost:11434]
       --api-key <API_KEY>
-          API key for authentication (llama.cpp server)
+          API key for authentication (llama.cpp server) [env: IMMICH_ANALYZE_API_KEY]
       --max-concurrent <MAX_CONCURRENT>
           Maximum number of concurrent requests [default: 4]
       --unavailable-duration <UNAVAILABLE_DURATION>
@@ -196,53 +246,75 @@ Options:
       --prompt <PROMPT>
           Prompt for generating image description [default: "Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long."]
       --lang <LANG>
-          Interface language (ru, en) [default: ]
+          Interface language (ru, en) [default: ""]
   -h, --help
-          Print help
+          Print help (see more with '--help')
   -V, --version
           Print version
 ```
 
+> **Note**: `IMMICH_API_URL` and `IMMICH_API_KEY` are read from environment variables by clap when using `--data-access-mode immich-api` - no need to pass them as command-line arguments.
+
 ## Usage Examples
 
-### Basic Batch Processing with Ollama
+### Database Mode
+
+**Basic Batch Processing with Ollama**
 ```bash
 immich-analyze \
+  --data-access-mode database \
   --postgres-url "host=localhost user=postgres dbname=immich password=password" \
   --interface ollama \
   --hosts "http://ollama-server:11434"
 ```
 
-### Basic Batch Processing with llama.cpp Server
+**Basic Batch Processing with llama.cpp Server**
 ```bash
 immich-analyze \
+  --data-access-mode database \
   --postgres-url "host=localhost user=postgres dbname=immich password=password" \
   --interface llamacpp \
-  --hosts "http://llamacpp-server:8080" \
+  --hosts "http://llamacpp-server:8080"
 ```
 
-### Monitor Mode (Watch for new images)
+**Monitor Mode (Watch for new images)**
 ```bash
 immich-analyze \
   --monitor \
+  --data-access-mode database \
   --postgres-url "host=localhost user=postgres dbname=immich password=password" \
   --interface ollama \
   --hosts "http://ollama:11434,http://ollama-backup:11434"
 ```
 
-### Combined Mode (Process existing + monitor new)
+### API Mode
+
+**Basic Batch Processing via Immich API**
 ```bash
+IMMICH_API_URL=http://immich:2283 \
+IMMICH_API_KEY=your_api_key \
+immich-analyze \
+  --data-access-mode immich-api \
+  --interface ollama \
+  --hosts "http://ollama-server:11434"
+```
+
+**Combined Mode with API Access and llama.cpp**
+```bash
+IMMICH_API_URL=http://immich:2283 \
+IMMICH_API_KEY=your_api_key \
+IMMICH_ANALYZE_API_KEY=your-llamacpp-api-key \
 immich-analyze \
   --combined \
-  --postgres-url "host=localhost user=postgres dbname=immich password=password" \
+  --data-access-mode immich-api \
   --interface llamacpp \
   --hosts "http://llamacpp-primary:8080,http://llamacpp-secondary:8080" \
-  --api-key "your-api-key"
+  --api-poll-interval 30
 ```
 
 ### Enable Debug Logging
 ```bash
-RUST_LOG=debug immich-analyze --combined --postgres-url "..." --interface ollama
+RUST_LOG=debug immich-analyze --combined --data-access-mode database --postgres-url "..." --interface ollama
 ```
 
 ## Model Recommendations
@@ -263,17 +335,31 @@ ollama pull qwen3-vl:4b-thinking-q4_K_M
 
 ## Architecture
 
-The application integrates with your Immich instance by analyzing preview images stored in the `thumbs/` directory and storing generated descriptions directly in the PostgreSQL database. It supports multiple operation modes:
+The application integrates with your Immich instance by analyzing preview images and storing generated descriptions. It supports multiple operation modes:
 
 - **Batch Mode**: Process all existing images in your library
-- **Monitor Mode**: Automatically process new images as they're added to Immich using filesystem events
+- **Monitor Mode**: Automatically process new images as they're added to Immich
 - **Combined Mode**: Process existing images in background while simultaneously monitoring for new additions
 
-The system includes:
+### Data Access Modes
+
+#### Database Mode
+- Direct access to Immich PostgreSQL database for reading/writing metadata
+- Direct filesystem access to `thumbs/` directory for image analysis
+- Uses filesystem events for monitoring new images
+- Requires `--immich-root` and `--postgres-url` configuration
+
+#### API Mode
+- Uses Immich REST API for all data operations
+- No direct database or filesystem access required
+- Polls Immich API for new assets at configurable interval (`--api-poll-interval`)
+- Requires `IMMICH_API_URL` and `IMMICH_API_KEY` environment variables
+
+### Core Features
 - Automatic retry logic with multiple AI service hosts and automatic failover
 - Host unavailability tracking with configurable recovery duration
-- File stability checks to ensure images are fully written before processing
-- Event cooldown to prevent duplicate processing of rapid filesystem events
+- File stability checks (database mode) to ensure images are fully written before processing
+- Event cooldown (database mode) to prevent duplicate processing of rapid filesystem events
 - Structured logging via `env_logger` for easier debugging and monitoring
 
 ## Troubleshooting
@@ -288,9 +374,14 @@ RUST_LOG=debug immich-analyze --combined ...
 - For Ollama: `systemctl status ollama` or `curl http://localhost:11434/api/tags`
 - For llama.cpp: `curl http://localhost:8080/health`
 
+### API Mode Issues
+- Verify `IMMICH_API_URL` is reachable: `curl $IMMICH_API_URL/api/server-info`
+- Verify API key has sufficient permissions in Immich admin panel
+- Check Immich server logs for authentication errors
+
 ## TODO:
 - [x] Add llama.cpp support
-- [ ] Add support for Immich API
+- [x] Add support for Immich API
 - [ ] Add waiting list
 - [x] Rename ignore-existing option/variable to overwrite-existing
 - [ ] Add JWT support
