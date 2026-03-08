@@ -32,4 +32,10 @@ pub enum ImageAnalysisError {
     OllamaRequestTimeout,
     #[error("Llama.cpp request timeout")]
     LlamaCppRequestTimeout,
+    #[error("Invalid API key")]
+    InvalidApiKey,
+    #[error("Invalid configuration: {error}")]
+    InvalidConfig { error: String },
+    #[error("HTTP client error: {error}")]
+    HttpClientError { error: String },
 }
