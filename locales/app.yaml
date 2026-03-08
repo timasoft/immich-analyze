@@ -190,6 +190,9 @@ recommendation.check_ai_servers:
 monitor.folder_monitoring_started:
   en: " Started monitoring folder: %{path}"
   ru: " Начат мониторинг папки: %{path}"
+monitor.api_monitoring_started:
+  en: " Started monitoring via Immich API"
+  ru: " Начат мониторинг через Immich API"
 monitor.stop_instructions:
   en: " To stop, press Ctrl+C"
   ru: " Для остановки нажмите Ctrl+C"
@@ -205,6 +208,9 @@ monitor.event_channel_disconnected:
 monitor.file_detected:
   en: " New file detected: %{filename}"
   ru: " Обнаружен новый файл: %{filename}"
+monitor.api_asset_queued:
+  en: " Queued for processing: %{asset_id}"
+  ru: " Поставлен в очередь для обработки: %{asset_id}"
 monitor.file_stable:
   en: " File %{filename} is stable and ready for processing"
   ru: " Файл %{filename} стабилен и готов к обработке"
@@ -394,3 +400,6 @@ error.llamacpp_request_timeout:
 error.ollama_host_marked_unavailable:
   en: " Ollama host marked as temporarily unavailable: %{host}"
   ru: " Ollama сервер помечен как временно недоступный: %{host}"
+error.api_polling_failed:
+  en: " API polling failed: %{error}"
+  ru: " Опрос API не удался: %{error}"
