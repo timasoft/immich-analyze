@@ -27,7 +27,7 @@ thiserror = "2.0"
 tokio = { version = "1.49", features = ["rt-multi-thread", "signal", "macros", "fs"] }
 tokio-postgres = "0.7"
 url = "2.5.8"
-uuid = { version = "1.21", features = ["serde"] }
+uuid = { version = "1.22", features = ["serde"] }
 
 [profile.release]
 lto = "thin"
