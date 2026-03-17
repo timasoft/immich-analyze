@@ -1,7 +1,7 @@
 use crate::error::ImageAnalysisError;
 use log::error;
 use regex::Regex;
-use std::{path::Path, str::FromStr};
+use std::{path::Path, str::FromStr, sync::OnceLock};
 use uuid::Uuid;
 
 /// Get system locale from environment variables
@@ -21,24 +21,27 @@ pub fn get_system_locale() -> String {
         .unwrap_or_else(|_| "en".to_string())
 }
 
-/// Extract UUID from preview filename (works with Immich naming pattern)
+static PREVIEW_PATTERN: OnceLock<Regex> = OnceLock::new();
+
+static UUID_PATTERN: OnceLock<Regex> = OnceLock::new();
+
 pub fn extract_uuid_from_preview_filename(filename: &str) -> Result<Uuid, ImageAnalysisError> {
-    static PREVIEW_PATTERN: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+    let preview_pattern = PREVIEW_PATTERN.get_or_init(|| {
         Regex::new(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[-_]preview")
             .expect("Invalid preview filename regex")
     });
-    static UUID_PATTERN: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+    let uuid_pattern = UUID_PATTERN.get_or_init(|| {
         Regex::new(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
             .expect("Invalid uuid regex")
     });
-    if let Some(captures) = PREVIEW_PATTERN.captures(filename)
+    if let Some(captures) = preview_pattern.captures(filename)
         && let Some(uuid_str) = captures.get(1)
     {
         return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
             filename: filename.to_string(),
         });
     }
-    if let Some(captures) = UUID_PATTERN.captures(filename)
+    if let Some(captures) = uuid_pattern.captures(filename)
         && let Some(uuid_str) = captures.get(1)
     {
         return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
