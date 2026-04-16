@@ -1,3 +1,5 @@
 /target
 .gptree_config
 gptree_output.txt
+.qwen
+QWEN.md
