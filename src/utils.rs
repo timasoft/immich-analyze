@@ -1,7 +1,7 @@
 use crate::error::ImageAnalysisError;
 use log::error;
 use regex::Regex;
-use std::{path::Path, str::FromStr, sync::OnceLock};
+use std::{borrow::Cow, path::Path, str::FromStr, sync::OnceLock};
 use uuid::Uuid;
 
 /// Get system locale from environment variables
@@ -56,24 +56,33 @@ pub fn extract_uuid_from_preview_filename(filename: &str) -> Result<Uuid, ImageA
 pub fn determine_locale(
     user_lang: &str,
     system_locale: &str,
-    available_locales: &[&str],
+    available_locales: &[Cow<'_, str>],
 ) -> String {
     if !user_lang.is_empty() {
-        let user_locale = user_lang.to_lowercase();
-        if available_locales.iter().any(|&loc| loc == user_locale) {
-            return user_locale;
+        let user_locale_lower = user_lang.to_lowercase();
+
+        if available_locales
+            .iter()
+            .any(|loc| loc.as_ref().eq_ignore_ascii_case(&user_locale_lower))
+        {
+            return user_locale_lower;
         }
+
         let available_locales_str = available_locales.join(", ");
         eprintln!(
             "{}",
             rust_i18n::t!(
                 "autodetect.locale_not_supported",
-                locale = user_locale,
+                locale = user_locale_lower,
                 available = available_locales_str
             )
         );
     }
-    if available_locales.contains(&system_locale) {
+
+    if available_locales
+        .iter()
+        .any(|loc| loc.as_ref().eq_ignore_ascii_case(system_locale))
+    {
         return system_locale.to_string();
     }
     "en".to_string()
