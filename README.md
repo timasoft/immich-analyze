@@ -438,7 +438,7 @@ RUST_LOG=debug immich-analyze --combined ...
 ## TODO:
 - [x] Add llama.cpp support
 - [x] Add support for Immich API
-- [ ] ~~Add waiting list~~ Add retry logic
+- [x] ~~Add waiting list~~ Add retry logic
 - [x] Rename ignore-existing option/variable to overwrite-existing
 - [ ] Add JWT support
 - [ ] Add NixOS service module
