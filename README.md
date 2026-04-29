@@ -440,6 +440,7 @@ RUST_LOG=debug immich-analyze --combined ...
 - [x] Add support for Immich API
 - [x] ~~Add waiting list~~ Add retry logic
 - [x] Rename ignore-existing option/variable to overwrite-existing
+- [ ] Add support for multiple Immich API keys
 - [ ] Add JWT support
 - [ ] Add NixOS service module
 - [ ] Add video support
