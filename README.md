@@ -194,6 +194,8 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent AI requests | `4` |
 | `IMMICH_ANALYZE_UNAVAILABLE_DURATION` | Host availability check interval in seconds | `60` |
 | `IMMICH_ANALYZE_TIMEOUT` | AI request timeout in seconds | `300` |
+| `IMMICH_ANALYZE_MAX_RETRIES` | Maximum retry attempts (0 = infinite) | `0` |
+| `IMMICH_ANALYZE_RETRY_DELAY_SECONDS` | Delay between retry cycles in seconds | `5` |
 | `RUST_LOG` | Logging level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
 
 > **Default prompt**: `Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long.`
