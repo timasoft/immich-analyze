@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     io::Read,
+    num::NonZeroU32,
     path::Path,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -67,6 +68,7 @@ impl OllamaHostManager {
 }
 
 /// Analyze image using Ollama API with fallback to multiple hosts
+#[allow(clippy::too_many_arguments)]
 pub async fn analyze_image(
     client: &Client,
     image_path: &Path,
@@ -74,6 +76,8 @@ pub async fn analyze_image(
     prompt: &str,
     timeout: u64,
     host_manager: &OllamaHostManager,
+    max_retries: Option<NonZeroU32>,
+    retry_delay: Duration,
 ) -> Result<crate::database::ImageAnalysisResult, ImageAnalysisError> {
     let filename = image_path
         .file_name()
@@ -113,88 +117,128 @@ pub async fn analyze_image(
         ],
         "stream": false,
     });
+
+    let mut attempt: u32 = 0;
     let mut last_error = None;
-    // Try each available host until we get a successful response
-    for _attempt in 0..host_manager.hosts.len() {
-        let host = match host_manager.get_available_host().await {
-            Ok(host) => host,
-            Err(e) => return Err(e),
-        };
-        let ollama_url = format!("{}/api/chat", host.trim_end_matches('/'));
-        match tokio::time::timeout(Duration::from_secs(timeout.saturating_add(1)), async {
-            client.post(&ollama_url).json(&request_body).send().await
-        })
-        .await
-        {
-            Ok(Ok(response)) => {
-                if response.status().is_success() {
-                    let response_text =
-                        response
-                            .text()
-                            .await
-                            .map_err(|e| ImageAnalysisError::ProcessingError {
+    loop {
+        attempt += 1;
+
+        if max_retries.is_some() || attempt > 1 {
+            log::info!(
+                target: "retry",
+                "Retry attempt {}/{} for image {}",
+                attempt,
+                max_retries.map_or("∞".to_string(), |m| m.to_string()),
+                filename
+            );
+        }
+
+        // Try each available host until we get a successful response
+        for _ in 0..host_manager.hosts.len() {
+            let host = match host_manager.get_available_host().await {
+                Ok(host) => host,
+                Err(e) => return Err(e),
+            };
+            let ollama_url = format!("{}/api/chat", host.trim_end_matches('/'));
+            match tokio::time::timeout(Duration::from_secs(timeout.saturating_add(1)), async {
+                client.post(&ollama_url).json(&request_body).send().await
+            })
+            .await
+            {
+                Ok(Ok(response)) => {
+                    if response.status().is_success() {
+                        let response_text = response.text().await.map_err(|e| {
+                            ImageAnalysisError::ProcessingError {
                                 filename: filename.clone(),
                                 error: e.to_string(),
-                            })?;
-                    match serde_json::from_str::<ChatResponse>(&response_text) {
-                        Ok(chat_response) => {
-                            let description = chat_response.message.content.trim().to_string();
-                            if description.is_empty() {
-                                last_error = Some(ImageAnalysisError::EmptyResponse {
-                                    filename: filename.clone(),
-                                });
-                            } else {
-                                return Ok(crate::database::ImageAnalysisResult {
-                                    description,
-                                    asset_id,
-                                });
                             }
-                        }
-                        Err(parse_error) => {
-                            // Fallback parsing attempt
-                            if let Ok(json_value) = serde_json::from_str::<Value>(&response_text)
-                                && let Some(content) = json_value
-                                    .get("message")
-                                    .and_then(|m| m.get("content"))
-                                    .and_then(|c| c.as_str())
-                            {
-                                let description = content.trim().to_string();
-                                if !description.is_empty() {
+                        })?;
+                        match serde_json::from_str::<ChatResponse>(&response_text) {
+                            Ok(chat_response) => {
+                                let description = chat_response.message.content.trim().to_string();
+                                if description.is_empty() {
+                                    last_error = Some(ImageAnalysisError::EmptyResponse {
+                                        filename: filename.clone(),
+                                    });
+                                } else {
                                     return Ok(crate::database::ImageAnalysisResult {
                                         description,
                                         asset_id,
                                     });
                                 }
                             }
-                            last_error = Some(ImageAnalysisError::JsonParsing {
-                                filename: filename.clone(),
-                                error: parse_error.to_string(),
-                            });
+                            Err(parse_error) => {
+                                // Fallback parsing attempt
+                                if let Ok(json_value) =
+                                    serde_json::from_str::<Value>(&response_text)
+                                    && let Some(content) = json_value
+                                        .get("message")
+                                        .and_then(|m| m.get("content"))
+                                        .and_then(|c| c.as_str())
+                                {
+                                    let description = content.trim().to_string();
+                                    if !description.is_empty() {
+                                        return Ok(crate::database::ImageAnalysisResult {
+                                            description,
+                                            asset_id,
+                                        });
+                                    }
+                                }
+                                last_error = Some(ImageAnalysisError::JsonParsing {
+                                    filename: filename.clone(),
+                                    error: parse_error.to_string(),
+                                });
+                            }
                         }
+                    } else {
+                        let status = response.status().as_u16();
+                        let response_text = response.text().await.unwrap_or_default();
+                        let error = ImageAnalysisError::HttpError {
+                            status,
+                            filename: filename.clone(),
+                            response: response_text,
+                        };
+                        if !error.is_retryable() {
+                            return Err(error);
+                        }
+                        last_error = Some(error);
                     }
-                } else {
-                    let status = response.status().as_u16();
-                    let response_text = response.text().await.unwrap_or_default();
-                    last_error = Some(ImageAnalysisError::HttpError {
-                        status,
+                }
+                Ok(Err(e)) => {
+                    let error = ImageAnalysisError::HttpError {
+                        status: 0,
                         filename: filename.clone(),
-                        response: response_text,
-                    });
+                        response: e.to_string(),
+                    };
+                    last_error = Some(error);
+                }
+                Err(_) => {
+                    last_error = Some(ImageAnalysisError::OllamaRequestTimeout);
                 }
             }
-            Ok(Err(e)) => {
-                last_error = Some(ImageAnalysisError::HttpError {
-                    status: 0,
-                    filename: filename.clone(),
-                    response: e.to_string(),
-                });
-            }
-            Err(_) => {
-                last_error = Some(ImageAnalysisError::OllamaRequestTimeout);
-            }
+            // Mark current host as unavailable
+            host_manager.mark_host_unavailable(&host).await;
         }
-        // Mark current host as unavailable
-        host_manager.mark_host_unavailable(&host).await;
+
+        // All hosts tried, check if we should retry
+        if let Some(ref e) = last_error
+            && !e.is_retryable()
+        {
+            return Err(e.clone());
+        }
+
+        // Wait before next retry cycle
+        if max_retries.is_none_or(|max| attempt < max.get()) {
+            log::info!(
+                target: "retry",
+                "All hosts failed for {}, waiting {}s before retry",
+                filename,
+                retry_delay.as_secs()
+            );
+            tokio::time::sleep(retry_delay).await;
+        } else {
+            break;
+        }
     }
     Err(last_error.unwrap_or(ImageAnalysisError::AllHostsUnavailable))
 }

@@ -84,4 +84,10 @@ pub struct Args {
     /// Interface language (ru, en)
     #[arg(long, default_value = "")]
     pub lang: String,
+    /// Maximum number of retry attempts (0 = infinite)
+    #[arg(long, default_value_t = 0)]
+    pub max_retries: u32,
+    /// Delay between retry cycles in seconds (fixed)
+    #[arg(long, default_value_t = 5)]
+    pub retry_delay_seconds: u64,
 }
