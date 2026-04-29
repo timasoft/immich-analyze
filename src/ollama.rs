@@ -1,5 +1,6 @@
 use crate::{error::ImageAnalysisError, utils::extract_uuid_from_preview_filename};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use log::info;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
@@ -124,8 +125,7 @@ pub async fn analyze_image(
         attempt += 1;
 
         if max_retries.is_some() || attempt > 1 {
-            log::info!(
-                target: "retry",
+            info!(
                 "Retry attempt {}/{} for image {}",
                 attempt,
                 max_retries.map_or("∞".to_string(), |m| m.to_string()),
@@ -229,8 +229,7 @@ pub async fn analyze_image(
 
         // Wait before next retry cycle
         if max_retries.is_none_or(|max| attempt < max.get()) {
-            log::info!(
-                target: "retry",
+            info!(
                 "All hosts failed for {}, waiting {}s before retry",
                 filename,
                 retry_delay.as_secs()
