@@ -17,6 +17,7 @@ The application supports two data access modes:
 - Multi-host support with automatic failover for AI service endpoints
 - **Dual data access modes**: Direct PostgreSQL database access OR Immich API integration
 - Concurrent processing with configurable parallelism
+- Configurable retry logic with max retries and delay between attempts
 - Internationalization support (English and Russian)
 - Docker container support
 - Structured logging via `env_logger` (configure with `RUST_LOG` environment variable)
@@ -247,6 +248,10 @@ Options:
           Prompt for generating image description [default: "Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long."]
       --lang <LANG>
           Interface language (ru, en) [default: ""]
+      --max-retries <MAX_RETRIES>
+          Maximum number of retry attempts (0 = infinite) [default: 0]
+      --retry-delay-seconds <RETRY_DELAY_SECONDS>
+          Delay between retry cycles in seconds (fixed) [default: 5]
   -h, --help
           Print help (see more with '--help')
   -V, --version
@@ -287,6 +292,28 @@ immich-analyze \
   --hosts "http://ollama:11434,http://ollama-backup:11434"
 ```
 
+**Monitor Mode with Infinite Retries**
+```bash
+immich-analyze \
+  --monitor \
+  --data-access-mode database \
+  --postgres-url "host=localhost user=postgres dbname=immich password=password" \
+  --interface ollama \
+  --hosts "http://ollama:11434" \
+  --retry-delay-seconds 10
+```
+
+**Batch Processing with Limited Retries**
+```bash
+immich-analyze \
+  --data-access-mode database \
+  --postgres-url "host=localhost user=postgres dbname=immich password=password" \
+  --interface ollama \
+  --hosts "http://ollama-server:11434" \
+  --max-retries 3 \
+  --retry-delay-seconds 10
+```
+
 ### API Mode
 
 **Basic Batch Processing via Immich API**
@@ -310,6 +337,29 @@ immich-analyze \
   --interface llamacpp \
   --hosts "http://llamacpp-primary:8080,http://llamacpp-secondary:8080" \
   --api-poll-interval 30
+```
+
+**Monitor Mode with Infinite Retries**
+```bash
+IMMICH_API_URL=http://immich:2283 \
+IMMICH_API_KEY=your_api_key \
+immich-analyze \
+  --data-access-mode immich-api \
+  --interface ollama \
+  --hosts "http://ollama:11434" \
+  --monitor
+```
+
+**Batch Processing with Limited Retries**
+```bash
+IMMICH_API_URL=http://immich:2283 \
+IMMICH_API_KEY=your_api_key \
+immich-analyze \
+  --data-access-mode immich-api \
+  --interface llamacpp \
+  --hosts "http://llamacpp-server:8080" \
+  --max-retries 5 \
+  --retry-delay-seconds 15
 ```
 
 ### Enable Debug Logging
@@ -357,6 +407,10 @@ The application integrates with your Immich instance by analyzing preview images
 
 ### Core Features
 - Automatic retry logic with multiple AI service hosts and automatic failover
+  - Configurable maximum retry attempts (`--max-retries`, 0 = infinite)
+  - Configurable delay between retry cycles (`--retry-delay-seconds`)
+  - Smart error classification: only retryable errors (5xx HTTP, timeouts, host unavailable) trigger retries
+  - Non-retryable errors (invalid UUID, empty response, JSON parsing) fail immediately
 - Host unavailability tracking with configurable recovery duration
 - File stability checks (database mode) to ensure images are fully written before processing
 - Event cooldown (database mode) to prevent duplicate processing of rapid filesystem events
@@ -382,7 +436,7 @@ RUST_LOG=debug immich-analyze --combined ...
 ## TODO:
 - [x] Add llama.cpp support
 - [x] Add support for Immich API
-- [ ] Add waiting list
+- [ ] ~~Add waiting list~~ Add retry logic
 - [x] Rename ignore-existing option/variable to overwrite-existing
 - [ ] Add JWT support
 - [ ] Add NixOS service module
