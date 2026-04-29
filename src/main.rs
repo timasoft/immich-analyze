@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::{path::Path, sync::Arc};
+use std::{num::NonZeroU32, path::Path, sync::Arc};
 use tokio_postgres::NoTls;
 
 mod args;
@@ -147,6 +147,8 @@ async fn run_monitor_mode(
         api_key: args.api_key.clone(),
         unavailable_duration: args.unavailable_duration,
         api_poll_interval: args.api_poll_interval,
+        max_retries: NonZeroU32::new(args.max_retries),
+        retry_delay_seconds: args.retry_delay_seconds,
     };
     monitor_folder(
         &args.model_name,

@@ -82,6 +82,14 @@ if [[ "$IMMICH_ANALYZE_API_POLL_INTERVAL" =~ ^[0-9]+$ ]]; then
     args+=("--api-poll-interval" "$IMMICH_ANALYZE_API_POLL_INTERVAL")
 fi
 
+if [[ "$IMMICH_ANALYZE_MAX_RETRIES" =~ ^[0-9]+$ ]]; then
+    args+=("--max-retries" "$IMMICH_ANALYZE_MAX_RETRIES")
+fi
+
+if [[ "$IMMICH_ANALYZE_RETRY_DELAY_SECONDS" =~ ^[0-9]+$ ]]; then
+    args+=("--retry-delay-seconds" "$IMMICH_ANALYZE_RETRY_DELAY_SECONDS")
+fi
+
 echo "Running immich-analyze with args: ${args[@]}"
 
 # Execute with proper signal handling

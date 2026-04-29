@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum ImageAnalysisError {
     #[error("Empty file: {filename}")]
     EmptyFile { filename: String },
@@ -38,4 +38,34 @@ pub enum ImageAnalysisError {
     InvalidConfig { error: String },
     #[error("HTTP client error: {error}")]
     HttpClientError { error: String },
+}
+
+impl ImageAnalysisError {
+    /// Check if this error is retryable (transient)
+    #[must_use]
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            // Retryable errors
+            ImageAnalysisError::HttpError { status, .. } => {
+                *status == 0 || (*status >= 500 && *status <= 599) || *status == 429
+            }
+            ImageAnalysisError::AllHostsUnavailable => true,
+            ImageAnalysisError::OllamaRequestTimeout => true,
+            ImageAnalysisError::LlamaCppRequestTimeout => true,
+            ImageAnalysisError::HttpClientError { .. } => true,
+
+            // Non-retryable errors
+            ImageAnalysisError::EmptyFile { .. } => false,
+            ImageAnalysisError::InvalidUuid { .. } => false,
+            ImageAnalysisError::InvalidImmichStructure { .. } => false,
+            ImageAnalysisError::InvalidApiKey => false,
+            ImageAnalysisError::InvalidConfig { .. } => false,
+            ImageAnalysisError::EmptyResponse { .. } => false,
+            ImageAnalysisError::JsonParsing { .. } => false,
+            ImageAnalysisError::AlreadyProcessed { .. } => false,
+            ImageAnalysisError::DatabaseError { .. } => false,
+            ImageAnalysisError::ProcessingError { .. } => false,
+            ImageAnalysisError::FileWriteTimeout { .. } => false,
+        }
+    }
 }

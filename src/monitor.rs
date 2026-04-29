@@ -101,6 +101,8 @@ pub async fn process_new_file(
                 prompt,
                 config.request_timeout,
                 manager,
+                config.max_retries,
+                Duration::from_secs(config.retry_delay_seconds),
             )
             .await
         }
@@ -112,6 +114,8 @@ pub async fn process_new_file(
                 prompt,
                 config.request_timeout,
                 manager,
+                config.max_retries,
+                Duration::from_secs(config.retry_delay_seconds),
             )
             .await
         }
@@ -303,6 +307,8 @@ pub async fn monitor_folder(
                                                 file_check_interval: config.file_check_interval,
                                                 overwrite_existing: config.overwrite_existing,
                                                 request_timeout: config.timeout,
+                                                max_retries: config.max_retries,
+                                                retry_delay_seconds: config.retry_delay_seconds,
                                             };
 
                                             tokio::spawn(async move {
@@ -315,6 +321,8 @@ pub async fn monitor_folder(
                                                     timeout: file_processing_config.request_timeout,
                                                     ollama_manager: ollama_manager_clone.as_ref(),
                                                     llamacpp_manager: llamacpp_manager_clone.as_ref(),
+                                                    max_retries: file_processing_config.max_retries,
+                                                    retry_delay: Duration::from_secs(file_processing_config.retry_delay_seconds),
                                                 };
                                                 let result = process_new_file(
                                                     &ctx,
@@ -452,6 +460,8 @@ pub async fn monitor_folder(
                                                 timeout: config_clone.timeout,
                                                 ollama_manager: ollama_manager_clone.as_ref(),
                                                 llamacpp_manager: llamacpp_manager_clone.as_ref(),
+                                                max_retries: config_clone.max_retries,
+                                                retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
                                             };
 
                                             let file_processing_config = FileProcessingConfig {
@@ -459,6 +469,8 @@ pub async fn monitor_folder(
                                                 file_check_interval: config_clone.file_check_interval,
                                                 overwrite_existing: config_clone.overwrite_existing,
                                                 request_timeout: config_clone.timeout,
+                                                max_retries: config_clone.max_retries,
+                                                retry_delay_seconds: config_clone.retry_delay_seconds,
                                             };
 
                                             let result = process_new_file(

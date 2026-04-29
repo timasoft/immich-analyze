@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     io::Read,
+    num::NonZeroU32,
     path::Path,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -108,6 +109,7 @@ impl LlamaCppHostManager {
 }
 
 /// Analyze image using llama.cpp server API with fallback to multiple hosts
+#[allow(clippy::too_many_arguments)]
 pub async fn analyze_image(
     client: &Client,
     image_path: &Path,
@@ -115,6 +117,8 @@ pub async fn analyze_image(
     prompt: &str,
     timeout: u64,
     host_manager: &LlamaCppHostManager,
+    max_retries: Option<NonZeroU32>,
+    retry_delay: Duration,
 ) -> Result<crate::database::ImageAnalysisResult, ImageAnalysisError> {
     let filename = image_path
         .file_name()
@@ -171,114 +175,91 @@ pub async fn analyze_image(
         "stream": false,
     });
 
+    let mut attempt: u32 = 0;
     let mut last_error = None;
-    // Try each available host until we get a successful response
-    for _attempt in 0..host_manager.hosts.len() {
-        let host = match host_manager.get_available_host().await {
-            Ok(host) => host,
-            Err(e) => {
-                error!("Failed to get available llamacpp host: {:?}", e);
-                return Err(e);
-            }
-        };
+    loop {
+        attempt += 1;
 
-        // llama.cpp server typically uses /v1/chat/completions endpoint
-        let llamacpp_url = format!("{}/v1/chat/completions", host.trim_end_matches('/'));
-        info!("Making llamacpp request to: {}", llamacpp_url);
-
-        let mut request = client.post(&llamacpp_url).json(&request_body);
-
-        // Add Authorization header if API key is provided
-        if let Some(ref api_key) = host_manager.api_key {
-            debug!("Adding Authorization header with API key (key present)");
-            request = request.header("Authorization", format!("Bearer {}", api_key));
-        } else {
-            debug!("No API key provided for llamacpp request");
+        if max_retries.is_some() || attempt > 1 {
+            info!(
+                "Retry attempt {}/{} for image {}",
+                attempt,
+                max_retries.map_or("∞".to_string(), |m| m.to_string()),
+                filename
+            );
         }
 
-        match tokio::time::timeout(Duration::from_secs(timeout.saturating_add(1)), async {
-            debug!("Sending llamacpp request...");
-            request.send().await
-        })
-        .await
-        {
-            Ok(Ok(response)) => {
-                let status = response.status();
-                debug!(
-                    "Received llamacpp response: {} {}",
-                    status.as_u16(),
-                    status.canonical_reason().unwrap_or("")
-                );
+        // Try each available host until we get a successful response
+        for _ in 0..host_manager.hosts.len() {
+            let host = match host_manager.get_available_host().await {
+                Ok(host) => host,
+                Err(e) => {
+                    error!("Failed to get available llamacpp host: {:?}", e);
+                    return Err(e);
+                }
+            };
 
-                if response.status().is_success() {
-                    let response_text = response.text().await.map_err(|e| {
-                        error!("Failed to read llamacpp response body: {}", e);
-                        ImageAnalysisError::ProcessingError {
-                            filename: filename.clone(),
-                            error: e.to_string(),
-                        }
-                    })?;
+            // llama.cpp server typically uses /v1/chat/completions endpoint
+            let llamacpp_url = format!("{}/v1/chat/completions", host.trim_end_matches('/'));
+            info!("Making llamacpp request to: {}", llamacpp_url);
 
+            let mut request = client.post(&llamacpp_url).json(&request_body);
+
+            // Add Authorization header if API key is provided
+            if let Some(ref api_key) = host_manager.api_key {
+                debug!("Adding Authorization header with API key (key present)");
+                request = request.header("Authorization", format!("Bearer {}", api_key));
+            } else {
+                debug!("No API key provided for llamacpp request");
+            }
+
+            match tokio::time::timeout(Duration::from_secs(timeout.saturating_add(1)), async {
+                debug!("Sending llamacpp request...");
+                request.send().await
+            })
+            .await
+            {
+                Ok(Ok(response)) => {
+                    let status = response.status();
                     debug!(
-                        "llamacpp response body length: {} chars",
-                        response_text.len()
+                        "Received llamacpp response: {} {}",
+                        status.as_u16(),
+                        status.canonical_reason().unwrap_or("")
                     );
 
-                    match serde_json::from_str::<LlamaCppResponse>(&response_text) {
-                        Ok(llamacpp_response) => {
-                            debug!(
-                                "Successfully parsed llamacpp response with {} choices",
-                                llamacpp_response.choices.len()
-                            );
-                            if let Some(choice) = llamacpp_response.choices.first() {
-                                let description = choice.message.content.trim().to_string();
-                                if description.is_empty() {
-                                    warn!(
-                                        "llamacpp returned empty content for image: {}",
-                                        filename
-                                    );
-                                    last_error = Some(ImageAnalysisError::EmptyResponse {
-                                        filename: filename.clone(),
-                                    });
-                                } else {
-                                    info!(
-                                        "llamacpp analysis successful for {}, description length: {}",
-                                        filename,
-                                        description.len()
-                                    );
-                                    return Ok(crate::database::ImageAnalysisResult {
-                                        description,
-                                        asset_id,
-                                    });
-                                }
-                            } else {
-                                warn!("llamacpp response has no choices for image: {}", filename);
-                                last_error = Some(ImageAnalysisError::EmptyResponse {
-                                    filename: filename.clone(),
-                                });
+                    if response.status().is_success() {
+                        let response_text = response.text().await.map_err(|e| {
+                            error!("Failed to read llamacpp response body: {}", e);
+                            ImageAnalysisError::ProcessingError {
+                                filename: filename.clone(),
+                                error: e.to_string(),
                             }
-                        }
-                        Err(parse_error) => {
-                            warn!(
-                                "Failed to parse llamacpp response as LlamaCppResponse: {}",
-                                parse_error
-                            );
-                            debug!("Attempting fallback JSON parsing...");
+                        })?;
 
-                            // Fallback parsing attempt
-                            if let Ok(json_value) = serde_json::from_str::<Value>(&response_text) {
-                                debug!("Fallback JSON parsing successful");
-                                if let Some(choices) = json_value.get("choices")
-                                    && let Some(first_choice) = choices.get(0)
-                                    && let Some(content) = first_choice
-                                        .get("message")
-                                        .and_then(|m| m.get("content"))
-                                        .and_then(|c| c.as_str())
-                                {
-                                    let description = content.trim().to_string();
-                                    if !description.is_empty() {
+                        debug!(
+                            "llamacpp response body length: {} chars",
+                            response_text.len()
+                        );
+
+                        match serde_json::from_str::<LlamaCppResponse>(&response_text) {
+                            Ok(llamacpp_response) => {
+                                debug!(
+                                    "Successfully parsed llamacpp response with {} choices",
+                                    llamacpp_response.choices.len()
+                                );
+                                if let Some(choice) = llamacpp_response.choices.first() {
+                                    let description = choice.message.content.trim().to_string();
+                                    if description.is_empty() {
+                                        warn!(
+                                            "llamacpp returned empty content for image: {}",
+                                            filename
+                                        );
+                                        last_error = Some(ImageAnalysisError::EmptyResponse {
+                                            filename: filename.clone(),
+                                        });
+                                    } else {
                                         info!(
-                                            "llamacpp analysis successful via fallback parsing for {}, description length: {}",
+                                            "llamacpp analysis successful for {}, description length: {}",
                                             filename,
                                             description.len()
                                         );
@@ -287,54 +268,123 @@ pub async fn analyze_image(
                                             asset_id,
                                         });
                                     }
+                                } else {
+                                    warn!(
+                                        "llamacpp response has no choices for image: {}",
+                                        filename
+                                    );
+                                    last_error = Some(ImageAnalysisError::EmptyResponse {
+                                        filename: filename.clone(),
+                                    });
                                 }
                             }
-                            error!(
-                                "Failed to parse llamacpp response with both methods for {}: {}",
-                                filename, parse_error
-                            );
-                            last_error = Some(ImageAnalysisError::JsonParsing {
-                                filename: filename.clone(),
-                                error: parse_error.to_string(),
-                            });
+                            Err(parse_error) => {
+                                warn!(
+                                    "Failed to parse llamacpp response as LlamaCppResponse: {}",
+                                    parse_error
+                                );
+                                debug!("Attempting fallback JSON parsing...");
+
+                                // Fallback parsing attempt
+                                if let Ok(json_value) =
+                                    serde_json::from_str::<Value>(&response_text)
+                                {
+                                    debug!("Fallback JSON parsing successful");
+                                    if let Some(choices) = json_value.get("choices")
+                                        && let Some(first_choice) = choices.get(0)
+                                        && let Some(content) = first_choice
+                                            .get("message")
+                                            .and_then(|m| m.get("content"))
+                                            .and_then(|c| c.as_str())
+                                    {
+                                        let description = content.trim().to_string();
+                                        if !description.is_empty() {
+                                            info!(
+                                                "llamacpp analysis successful via fallback parsing for {}, description length: {}",
+                                                filename,
+                                                description.len()
+                                            );
+                                            return Ok(crate::database::ImageAnalysisResult {
+                                                description,
+                                                asset_id,
+                                            });
+                                        }
+                                    }
+                                }
+                                error!(
+                                    "Failed to parse llamacpp response with both methods for {}: {}",
+                                    filename, parse_error
+                                );
+                                let error = ImageAnalysisError::JsonParsing {
+                                    filename: filename.clone(),
+                                    error: parse_error.to_string(),
+                                };
+                                if !error.is_retryable() {
+                                    return Err(error);
+                                }
+                                last_error = Some(error);
+                            }
                         }
+                    } else {
+                        let status = response.status().as_u16();
+                        let response_text = response.text().await.unwrap_or_default();
+                        error!(
+                            "llamacpp HTTP error {} for {}: {}",
+                            status, filename, response_text
+                        );
+                        let error = ImageAnalysisError::HttpError {
+                            status,
+                            filename: filename.clone(),
+                            response: response_text,
+                        };
+                        if !error.is_retryable() {
+                            return Err(error);
+                        }
+                        last_error = Some(error);
                     }
-                } else {
-                    let status = response.status().as_u16();
-                    let response_text = response.text().await.unwrap_or_default();
-                    error!(
-                        "llamacpp HTTP error {} for {}: {}",
-                        status, filename, response_text
-                    );
+                }
+                Ok(Err(e)) => {
+                    error!("llamacpp request failed for {}: {}", filename, e);
                     last_error = Some(ImageAnalysisError::HttpError {
-                        status,
+                        status: 0,
                         filename: filename.clone(),
-                        response: response_text,
+                        response: e.to_string(),
                     });
                 }
+                Err(_) => {
+                    error!(
+                        "llamacpp request timeout for {} (timeout: {}s)",
+                        filename, timeout
+                    );
+                    last_error = Some(ImageAnalysisError::LlamaCppRequestTimeout);
+                }
             }
-            Ok(Err(e)) => {
-                error!("llamacpp request failed for {}: {}", filename, e);
-                last_error = Some(ImageAnalysisError::HttpError {
-                    status: 0,
-                    filename: filename.clone(),
-                    response: e.to_string(),
-                });
-            }
-            Err(_) => {
-                error!(
-                    "llamacpp request timeout for {} (timeout: {}s)",
-                    filename, timeout
-                );
-                last_error = Some(ImageAnalysisError::LlamaCppRequestTimeout);
-            }
+            // Mark current host as unavailable
+            warn!(
+                "Marking llamacpp host as unavailable due to error: {}",
+                host
+            );
+            host_manager.mark_host_unavailable(&host).await;
         }
-        // Mark current host as unavailable
-        warn!(
-            "Marking llamacpp host as unavailable due to error: {}",
-            host
-        );
-        host_manager.mark_host_unavailable(&host).await;
+
+        // All hosts tried, check if we should retry
+        if let Some(ref e) = last_error
+            && !e.is_retryable()
+        {
+            return Err(e.clone());
+        }
+
+        // Wait before next retry cycle
+        if max_retries.is_none_or(|max| attempt < max.get()) {
+            info!(
+                "All hosts failed for {}, waiting {}s before retry",
+                filename,
+                retry_delay.as_secs()
+            );
+            tokio::time::sleep(retry_delay).await;
+        } else {
+            break;
+        }
     }
     Err(last_error.unwrap_or(ImageAnalysisError::AllHostsUnavailable))
 }

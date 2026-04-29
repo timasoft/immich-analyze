@@ -14,6 +14,7 @@ use futures::stream::{self, StreamExt};
 use log::error;
 use reqwest::Client;
 use std::{
+    num::NonZeroU32,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -123,6 +124,8 @@ async fn process_file(
                 prompt,
                 timeout,
                 manager,
+                ctx.max_retries,
+                ctx.retry_delay,
             )
             .await?
         }
@@ -134,6 +137,8 @@ async fn process_file(
                 prompt,
                 timeout,
                 manager,
+                ctx.max_retries,
+                ctx.retry_delay,
             )
             .await?
         }
@@ -235,6 +240,8 @@ pub async fn process_files_concurrently(
                 timeout,
                 ollama_manager: ollama_manager.as_ref(),
                 llamacpp_manager: llamacpp_manager.as_ref(),
+                max_retries: NonZeroU32::new(args.max_retries),
+                retry_delay: Duration::from_secs(args.retry_delay_seconds),
             };
 
             let result = if overwrite_existing {
