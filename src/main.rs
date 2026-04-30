@@ -81,9 +81,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let provider = immich_api::ImmichApiProvider::new(api_url, &args.immich_api_keys)?;
             println!(
-                "Connected to Immich API: {} (using {} API key(s))",
-                api_url,
-                args.immich_api_keys.len()
+                "{}",
+                rust_i18n::t!(
+                    "main.immich_api_connected",
+                    api_url = api_url,
+                    key_count = args.immich_api_keys.len().to_string()
+                )
             );
             DataAccess::new_api(Arc::new(provider))
         }

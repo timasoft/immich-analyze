@@ -119,6 +119,9 @@ main.database_updates_complete:
 main.postgres_connected:
   en: " Connected to PostgreSQL: %{url}"
   ru: " Подключено к PostgreSQL: %{url}"
+main.immich_api_connected:
+  en: " Connected to Immich API: %{api_url} (using %{key_count} API key(s))"
+  ru: " Подключено к Immich API: %{api_url} (используется %{key_count} ключ(ей) API)"
 main.processing_existing_images:
   en: " Processing existing images..."
   ru: " Обработка существующих изображений..."
