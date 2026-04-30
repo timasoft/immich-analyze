@@ -204,7 +204,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 
 ### Command Line Arguments
 
-```bash
+```txt
 Usage: immich-analyze [OPTIONS]
 
 Options:
