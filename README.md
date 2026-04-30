@@ -8,7 +8,7 @@ Immich Analyze automatically generates detailed descriptions for images in your 
 
 The application supports two data access modes:
 - **Database mode**: Direct PostgreSQL database access for reading/writing Immich metadata
-- **API mode**: Uses the Immich API (requires `IMMICH_API_URL` + `IMMICH_API_KEY`)
+- **API mode**: Uses the Immich API (requires `IMMICH_API_URL` + `IMMICH_API_KEY`; supports multiple comma-separated keys for multi-user setups)
 
 ## Features
 
@@ -172,7 +172,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `DB_HOSTNAME` | PostgreSQL hostname | `database` | Database mode |
 | `DB_PORT` | PostgreSQL port | `5432` | Database mode |
 | `IMMICH_API_URL` | Immich API base URL | - | API mode |
-| `IMMICH_API_KEY` | Immich API authentication key | - | API mode |
+| `IMMICH_API_KEY` | Immich API authentication key(s) (comma-separated for multi-user setups) | - | API mode |
 
 #### AI Service Configuration
 
@@ -222,8 +222,8 @@ Options:
           Data access mode: database (direct PostgreSQL) or api (Immich REST API) [default: database] [possible values: database, immich-api]
       --immich-api-url <IMMICH_API_URL>
           Immich API base URL (required when using api access mode) [env: IMMICH_API_URL=]
-      --immich-api-key <IMMICH_API_KEY>
-          Immich API authentication key (required when using api access mode) [env: IMMICH_API_KEY]
+      --immich-api-keys <IMMICH_API_KEYS>
+          Immich API authentication key(s) (required when using api access mode). Provide multiple keys comma-separated for multi-user setups [env: IMMICH_API_KEY]
       --api-poll-interval <API_POLL_INTERVAL>
           API poll interval in seconds (for Immich API mode) [default: 10]
       --model-name <MODEL_NAME>
@@ -260,7 +260,7 @@ Options:
           Print version
 ```
 
-> **Note**: `IMMICH_API_URL` and `IMMICH_API_KEY` are read from environment variables by clap when using `--data-access-mode immich-api` - no need to pass them as command-line arguments.
+> **Note**: `IMMICH_API_URL` and `IMMICH_API_KEY` are read from environment variables by clap when using `--data-access-mode immich-api` - no need to pass them as command-line arguments. `IMMICH_API_KEY` supports multiple comma-separated keys for multi-user setups.
 
 ## Usage Examples
 
@@ -322,6 +322,16 @@ immich-analyze \
 ```bash
 IMMICH_API_URL=http://immich:2283 \
 IMMICH_API_KEY=your_api_key \
+immich-analyze \
+  --data-access-mode immich-api \
+  --interface ollama \
+  --hosts "http://ollama-server:11434"
+```
+
+**Multi-User Batch Processing (Multiple API Keys)**
+```bash
+IMMICH_API_URL=http://immich:2283 \
+IMMICH_API_KEY=user1_key,user2_key,user3_key \
 immich-analyze \
   --data-access-mode immich-api \
   --interface ollama \
@@ -405,7 +415,7 @@ The application integrates with your Immich instance by analyzing preview images
 - Uses Immich REST API for all data operations
 - No direct database or filesystem access required
 - Polls Immich API for new assets at configurable interval (`--api-poll-interval`)
-- Requires `IMMICH_API_URL` and `IMMICH_API_KEY` environment variables
+- Requires `IMMICH_API_URL` and `IMMICH_API_KEY` environment variables (supports multiple comma-separated keys)
 
 ### Core Features
 - Automatic retry logic with multiple AI service hosts and automatic failover
@@ -440,7 +450,7 @@ RUST_LOG=debug immich-analyze --combined ...
 - [x] Add support for Immich API
 - [x] ~~Add waiting list~~ Add retry logic
 - [x] Rename ignore-existing option/variable to overwrite-existing
-- [ ] Add support for multiple Immich API keys
+- [x] Add support for multiple Immich API keys
 - [ ] Add JWT support
 - [ ] Add NixOS service module
 - [ ] Add video support

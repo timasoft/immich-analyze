@@ -34,9 +34,15 @@ pub struct Args {
     /// Immich API base URL (required when using api access mode)
     #[arg(long, env = "IMMICH_API_URL")]
     pub immich_api_url: Option<String>,
-    /// Immich API authentication key (required when using api access mode)
-    #[arg(long, env = "IMMICH_API_KEY", hide_env_values = true)]
-    pub immich_api_key: Option<String>,
+    /// Immich API authentication key(s) (required when using api access mode).
+    /// Provide multiple keys comma-separated for multi-user setups.
+    #[arg(
+        long,
+        env = "IMMICH_API_KEY",
+        value_delimiter = ',',
+        hide_env_values = true
+    )]
+    pub immich_api_keys: Vec<String>,
     /// API poll interval in seconds (for Immich API mode)
     #[arg(long, default_value_t = 10)]
     pub api_poll_interval: u64,
