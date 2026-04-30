@@ -76,11 +76,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let api_url = args.immich_api_url.as_ref().ok_or(
                 "IMMICH_API_URL required for API mode. Set via --immich-api-url or IMMICH_API_URL env var"
             )?;
-            let api_key = args.immich_api_key.as_ref().ok_or(
-                "IMMICH_API_KEY required for API mode. Set via --immich-api-key or IMMICH_API_KEY env var"
-            )?;
-            let provider = immich_api::ImmichApiProvider::new(api_url, api_key)?;
-            println!("Connected to Immich API: {}", api_url);
+            if args.immich_api_keys.is_empty() {
+                return Err("IMMICH_API_KEY required for API mode. Set via --immich-api-keys or IMMICH_API_KEY env var (comma-separated for multiple keys)".into());
+            }
+            let provider = immich_api::ImmichApiProvider::new(api_url, &args.immich_api_keys)?;
+            println!(
+                "Connected to Immich API: {} (using {} API key(s))",
+                api_url,
+                args.immich_api_keys.len()
+            );
             DataAccess::new_api(Arc::new(provider))
         }
     };
