@@ -45,6 +45,11 @@ jobs:
         with:
           cosign-release: 'v2.2.4'
 
+      # Set up QEMU for multi-platform builds (arm64 emulation on amd64 runner)
+      # https://github.com/docker/setup-qemu-action
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
       # Set up BuildKit Docker container builder to be able to build
       # multi-platform images and export cache
       # https://github.com/docker/setup-buildx-action
