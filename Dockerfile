@@ -1,12 +1,11 @@
 # Stage 1: Build application
-FROM rust:1.91-bullseye AS builder
+FROM rust:1.91-alpine AS builder
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
     ca-certificates \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+    pkgconfig \
+    openssl-dev \
+    build-base
 
 WORKDIR /app
 
@@ -23,16 +22,15 @@ COPY locales/ ./locales/
 RUN cargo build --release --locked
 
 # Stage 2: Final runtime image
-FROM debian:bullseye-slim
+FROM alpine:3.20
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
     ca-certificates \
-    libssl1.1 \
+    openssl \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    bash
 
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN addgroup -S appuser && adduser -S appuser -G appuser
 
 COPY --from=builder --chown=appuser:appuser /app/target/release/immich-analyze /usr/local/bin/
 
