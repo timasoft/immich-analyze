@@ -6,7 +6,7 @@ use crate::{
     llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
     ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     prompt_enricher::enrich_prompt_if_needed,
-    utils::extract_uuid_from_preview_filename,
+    utils::{extract_uuid_from_preview_filename, get_ai_block_pattern},
 };
 use log::error;
 use notify::{
@@ -132,8 +132,36 @@ pub async fn process_new_file(
                 "{}",
                 rust_i18n::t!("monitor.processing_success", filename = filename)
             );
+
+            let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
+            let final_description = if config.preserve_human {
+                match data_access.get_description(&analysis.asset_id).await {
+                    Ok(Some(existing)) => {
+                        let re = get_ai_block_pattern();
+                        if re.is_match(&existing) {
+                            re.replace(&existing, format!("\n{}\n", ai_wrapped))
+                                .trim()
+                                .to_string()
+                        } else {
+                            format!("{}\n\n{}", existing.trim(), ai_wrapped)
+                        }
+                    }
+                    Ok(None) => ai_wrapped,
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to get existing description for asset {}, cannot preserve human text: {}",
+                            analysis.asset_id,
+                            e
+                        );
+                        return Err(e);
+                    }
+                }
+            } else {
+                ai_wrapped
+            };
+
             data_access
-                .update_description(&analysis.asset_id, &analysis.description)
+                .update_description(&analysis.asset_id, &final_description)
                 .await?;
             println!(
                 "{}",
@@ -313,6 +341,7 @@ pub async fn monitor_folder(
                                                 request_timeout: config.timeout,
                                                 max_retries: config.max_retries,
                                                 retry_delay_seconds: config.retry_delay_seconds,
+                                                preserve_human: config.preserve_human,
                                             };
 
                                             tokio::spawn(async move {
@@ -328,6 +357,7 @@ pub async fn monitor_folder(
                                                     max_retries: file_processing_config.max_retries,
                                                     retry_delay: Duration::from_secs(file_processing_config.retry_delay_seconds),
                                                     enrich_prompt: config_clone.enrich_prompt,
+                                                    preserve_human: config_clone.preserve_human,
                                                 };
                                                 let result = process_new_file(
                                                     &ctx,
@@ -468,6 +498,7 @@ pub async fn monitor_folder(
                                                 max_retries: config_clone.max_retries,
                                                 retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
                                                 enrich_prompt: config_clone.enrich_prompt,
+                                                preserve_human: config_clone.preserve_human,
                                             };
 
                                             let file_processing_config = FileProcessingConfig {
@@ -477,6 +508,7 @@ pub async fn monitor_folder(
                                                 request_timeout: config_clone.timeout,
                                                 max_retries: config_clone.max_retries,
                                                 retry_delay_seconds: config_clone.retry_delay_seconds,
+                                                preserve_human: config_clone.preserve_human,
                                             };
 
                                             let result = process_new_file(

@@ -9,7 +9,7 @@ use crate::{
     ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     progress::SimpleProgress,
     prompt_enricher::enrich_prompt_if_needed,
-    utils::extract_uuid_from_preview_filename,
+    utils::{extract_uuid_from_preview_filename, get_ai_block_pattern},
 };
 use futures::stream::{self, StreamExt};
 use log::error;
@@ -150,8 +150,36 @@ async fn process_file(
 
     let _ = data_access.cleanup_preview(&preview_path).await;
 
+    let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
+
+    let final_description = if ctx.preserve_human {
+        match data_access.get_description(&analysis.asset_id).await {
+            Ok(Some(existing)) => {
+                let re = get_ai_block_pattern();
+                if re.is_match(&existing) {
+                    re.replace(&existing, format!("\n{}\n", ai_wrapped))
+                        .trim()
+                        .to_string()
+                } else {
+                    format!("{}\n\n{}", existing.trim(), ai_wrapped)
+                }
+            }
+            Ok(None) => ai_wrapped,
+            Err(e) => {
+                log::warn!(
+                    "Failed to get existing description for asset {}, cannot preserve human text: {}",
+                    analysis.asset_id,
+                    e
+                );
+                return Err(e);
+            }
+        }
+    } else {
+        ai_wrapped
+    };
+
     data_access
-        .update_description(&analysis.asset_id, &analysis.description)
+        .update_description(&analysis.asset_id, &final_description)
         .await?;
 
     Ok(analysis)
@@ -246,6 +274,7 @@ pub async fn process_files_concurrently(
                 max_retries: NonZeroU32::new(args.max_retries),
                 retry_delay: Duration::from_secs(args.retry_delay_seconds),
                 enrich_prompt: args.enrich_prompt,
+                preserve_human: args.preserve_human,
             };
 
             let result = if overwrite_existing {

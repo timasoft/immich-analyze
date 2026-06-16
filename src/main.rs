@@ -158,6 +158,7 @@ async fn run_monitor_mode(
         max_retries: NonZeroU32::new(args.max_retries),
         retry_delay_seconds: args.retry_delay_seconds,
         enrich_prompt: args.enrich_prompt,
+        preserve_human: args.preserve_human,
     };
     monitor_folder(
         &args.model_name,

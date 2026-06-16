@@ -19,6 +19,9 @@ pub struct Args {
     /// Overwrite existing entries in database (process all files regardless of existing descriptions)
     #[arg(short, long)]
     pub overwrite_existing: bool,
+    /// When overwriting, preserve human-entered text by only replacing the [AI]...[/AI] block. Requires --overwrite-existing.
+    #[arg(long, requires = "overwrite_existing")]
+    pub preserve_human: bool,
     /// Path to Immich root directory (containing upload/, thumbs/ folders)
     #[arg(long, default_value = "/var/lib/immich")]
     pub immich_root: String,

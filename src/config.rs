@@ -13,6 +13,7 @@ pub struct FileProcessingConfig {
     pub request_timeout: u64,
     pub max_retries: Option<NonZeroU32>,
     pub retry_delay_seconds: u64,
+    pub preserve_human: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,7 @@ pub struct MonitorConfig {
     pub max_retries: Option<NonZeroU32>,
     pub retry_delay_seconds: u64,
     pub enrich_prompt: bool,
+    pub preserve_human: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -45,4 +47,5 @@ pub struct ProcessingContext<'a> {
     pub max_retries: Option<NonZeroU32>,
     pub retry_delay: Duration,
     pub enrich_prompt: bool,
+    pub preserve_human: bool,
 }
