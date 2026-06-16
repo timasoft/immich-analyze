@@ -25,6 +25,22 @@ pub struct AssetResponse {
     pub exif_info: Option<ExifInfo>,
 }
 
+/// Person info from Immich API (subset of PersonWithFacesResponseDto).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonInfo {
+    pub name: String,
+    #[serde(default)]
+    pub birth_date: Option<String>,
+}
+
+/// Tag info from Immich API (subset of TagResponseDto).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagInfo {
+    pub value: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExifInfo {
@@ -68,6 +84,18 @@ pub struct AssetMetadata {
     pub r#type: Option<String>,
     #[serde(default)]
     pub file_created_at: Option<String>,
+    #[serde(default)]
+    pub local_date_time: Option<String>,
+    #[serde(default)]
+    pub height: Option<i32>,
+    #[serde(default)]
+    pub width: Option<i32>,
+    #[serde(default)]
+    pub original_mime_type: Option<String>,
+    #[serde(default)]
+    pub people: Vec<PersonInfo>,
+    #[serde(default)]
+    pub tags: Vec<TagInfo>,
     #[serde(default)]
     pub exif_info: Option<ExifInfo>,
 }

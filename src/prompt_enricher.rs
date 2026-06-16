@@ -1,4 +1,5 @@
 use crate::{config::ProcessingContext, data_access::DataAccess};
+use chrono::{Datelike, NaiveDate};
 use log::warn;
 use uuid::Uuid;
 
@@ -18,6 +19,11 @@ pub struct PromptContext {
     pub time_zone: Option<String>,
     pub original_file_name: Option<String>,
     pub asset_type: Option<String>,
+    pub people: Vec<(String, Option<u32>)>,
+    pub tags: Vec<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub mime_type: Option<String>,
 }
 
 impl PromptContext {
@@ -38,6 +44,11 @@ impl PromptContext {
             time_zone: None,
             original_file_name: None,
             asset_type: None,
+            people: Vec::new(),
+            tags: Vec::new(),
+            width: None,
+            height: None,
+            mime_type: None,
         }
     }
 
@@ -101,11 +112,46 @@ impl PromptContext {
         self
     }
 
+    pub fn with_people(mut self, people: Vec<(String, Option<u32>)>) -> Self {
+        self.people = people;
+        self
+    }
+
+    pub fn with_tags(mut self, tags: Vec<String>) -> Self {
+        self.tags = tags;
+        self
+    }
+
+    pub fn with_resolution(mut self, width: Option<i32>, height: Option<i32>) -> Self {
+        self.width = width.map(|w| w as u32);
+        self.height = height.map(|h| h as u32);
+        self
+    }
+
+    pub fn with_mime_type(mut self, mime: Option<String>) -> Self {
+        self.mime_type = mime;
+        self
+    }
+
     pub fn build_enriched_prompt(&self) -> String {
         let mut context_parts = Vec::new();
 
         if let Some(ref asset_type) = self.asset_type {
-            context_parts.push(format!("Asset type: {}", asset_type));
+            let desc = match self.mime_type.as_deref() {
+                Some("image/dng") => "RAW photo (DNG)".to_string(),
+                Some(mime) if mime.starts_with("image/") => {
+                    format!("{} photo", mime[6..].to_uppercase())
+                }
+                Some(mime) if mime.starts_with("video/") => {
+                    format!("{} video", mime[6..].to_uppercase())
+                }
+                _ => asset_type.clone(),
+            };
+            context_parts.push(format!("Asset type: {}", desc));
+        }
+
+        if let (Some(w), Some(h)) = (self.width, self.height) {
+            context_parts.push(format!("Resolution: {}×{}", w, h));
         }
 
         if let Some(ref date) = self.created_at {
@@ -118,6 +164,23 @@ impl PromptContext {
 
         if let Some(ref location) = self.location {
             context_parts.push(format!("Location: {}", location));
+        }
+
+        if !self.people.is_empty() {
+            let people_str: Vec<String> = self
+                .people
+                .iter()
+                .map(|(name, age)| match age {
+                    Some(a) if *a == 0 => format!("{} (<1 year)", name),
+                    Some(a) => format!("{} ({} years)", name, a),
+                    None => name.clone(),
+                })
+                .collect();
+            context_parts.push(format!("People: {}", people_str.join(", ")));
+        }
+
+        if !self.tags.is_empty() {
+            context_parts.push(format!("Tags: {}", self.tags.join(", ")));
         }
 
         if let Some(ref make) = self.camera_make {
@@ -173,6 +236,28 @@ impl PromptContext {
     }
 }
 
+/// Computes age at the time the photo was taken.
+fn calculate_age(birth_date: Option<&str>, photo_date: Option<&str>) -> Option<u32> {
+    let birth = NaiveDate::parse_from_str(birth_date?, "%Y-%m-%d").ok()?;
+    let photo_str = photo_date?;
+    let photo = if photo_str.len() >= 10 {
+        NaiveDate::parse_from_str(&photo_str[..10], "%Y-%m-%d").ok()?
+    } else {
+        return None;
+    };
+
+    let age_years = photo.year() - birth.year();
+    if age_years < 0 {
+        return None;
+    }
+    let birthday_this_year = birth.with_year(photo.year())?;
+    if photo < birthday_this_year {
+        Some((age_years - 1) as u32)
+    } else {
+        Some(age_years as u32)
+    }
+}
+
 pub async fn enrich_prompt_if_needed(
     ctx: &ProcessingContext<'_>,
     asset_id: &Uuid,
@@ -184,8 +269,33 @@ pub async fn enrich_prompt_if_needed(
     match ctx.data_access {
         DataAccess::ImmichApi { provider } => match provider.get_asset_metadata(asset_id).await {
             Ok(metadata) => {
+                let photo_date = metadata
+                    .local_date_time
+                    .as_deref()
+                    .or(metadata.file_created_at.as_deref())
+                    .or(metadata
+                        .exif_info
+                        .as_ref()
+                        .and_then(|e| e.date_time_original.as_deref()));
+
+                let people_with_ages: Vec<(String, Option<u32>)> = metadata
+                    .people
+                    .iter()
+                    .map(|p| {
+                        let age = calculate_age(p.birth_date.as_deref(), photo_date);
+                        (p.name.clone(), age)
+                    })
+                    .collect();
+
+                let tag_values: Vec<String> =
+                    metadata.tags.iter().map(|t| t.value.clone()).collect();
+
                 let mut context = PromptContext::new(ctx.prompt)
-                    .with_file_info(metadata.original_file_name, metadata.r#type);
+                    .with_file_info(metadata.original_file_name, metadata.r#type)
+                    .with_people(people_with_ages)
+                    .with_tags(tag_values)
+                    .with_resolution(metadata.width, metadata.height)
+                    .with_mime_type(metadata.original_mime_type);
 
                 if let Some(exif) = metadata.exif_info {
                     let created_at = exif.date_time_original.or(metadata.file_created_at);
