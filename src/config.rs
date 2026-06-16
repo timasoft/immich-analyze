@@ -30,6 +30,7 @@ pub struct MonitorConfig {
     pub api_poll_interval: u64,
     pub max_retries: Option<NonZeroU32>,
     pub retry_delay_seconds: u64,
+    pub enrich_prompt: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -43,4 +44,5 @@ pub struct ProcessingContext<'a> {
     pub llamacpp_manager: Option<&'a Arc<LlamaCppHostManager>>,
     pub max_retries: Option<NonZeroU32>,
     pub retry_delay: Duration,
+    pub enrich_prompt: bool,
 }

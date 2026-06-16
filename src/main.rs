@@ -13,6 +13,7 @@ mod llamacpp;
 mod monitor;
 mod ollama;
 mod progress;
+mod prompt_enricher;
 mod utils;
 
 use args::Args;
@@ -156,6 +157,7 @@ async fn run_monitor_mode(
         api_poll_interval: args.api_poll_interval,
         max_retries: NonZeroU32::new(args.max_retries),
         retry_delay_seconds: args.retry_delay_seconds,
+        enrich_prompt: args.enrich_prompt,
     };
     monitor_folder(
         &args.model_name,

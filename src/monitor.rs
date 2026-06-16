@@ -5,6 +5,7 @@ use crate::{
     error::ImageAnalysisError,
     llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
     ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
+    prompt_enricher::enrich_prompt_if_needed,
     utils::extract_uuid_from_preview_filename,
 };
 use log::error;
@@ -38,7 +39,6 @@ pub async fn process_new_file(
     let http_client = ctx.http_client;
     let data_access = ctx.data_access;
     let model_name = ctx.model_name;
-    let prompt = ctx.prompt;
     let ollama_manager = ctx.ollama_manager;
     let llamacpp_manager = ctx.llamacpp_manager;
 
@@ -92,13 +92,17 @@ pub async fn process_new_file(
         return Ok(());
     }
 
+    let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
+        .await
+        .unwrap_or_else(|| ctx.prompt.to_string());
+
     let result = match (ollama_manager, llamacpp_manager) {
         (Some(manager), _) => {
             ollama_analyze_image(
                 http_client,
                 preview_path,
                 model_name,
-                prompt,
+                &final_prompt,
                 config.request_timeout,
                 manager,
                 config.max_retries,
@@ -111,7 +115,7 @@ pub async fn process_new_file(
                 http_client,
                 preview_path,
                 model_name,
-                prompt,
+                &final_prompt,
                 config.request_timeout,
                 manager,
                 config.max_retries,
@@ -323,6 +327,7 @@ pub async fn monitor_folder(
                                                     llamacpp_manager: llamacpp_manager_clone.as_ref(),
                                                     max_retries: file_processing_config.max_retries,
                                                     retry_delay: Duration::from_secs(file_processing_config.retry_delay_seconds),
+                                                    enrich_prompt: config_clone.enrich_prompt,
                                                 };
                                                 let result = process_new_file(
                                                     &ctx,
@@ -462,6 +467,7 @@ pub async fn monitor_folder(
                                                 llamacpp_manager: llamacpp_manager_clone.as_ref(),
                                                 max_retries: config_clone.max_retries,
                                                 retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
+                                                enrich_prompt: config_clone.enrich_prompt,
                                             };
 
                                             let file_processing_config = FileProcessingConfig {
