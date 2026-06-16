@@ -20,6 +20,7 @@ The application supports two data access modes:
 - Configurable retry logic with max retries and delay between attempts
 - Internationalization support (English and Russian)
 - Docker container support
+- Prompt enrichment: optionally enrich AI prompts with asset metadata (EXIF, location, camera info, people with ages, tags, resolution, MIME type) - works **only** in Immich API mode
 - Structured logging via `env_logger` (configure with `RUST_LOG` environment variable)
 
 ## Prerequisites
@@ -183,6 +184,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `IMMICH_ANALYZE_API_KEY` | API key for llama.cpp server authentication | *(none)* |
 | `IMMICH_ANALYZE_MODEL_NAME` | Model name for image analysis | `qwen3-vl:4b-thinking-q4_K_M` |
 | `IMMICH_ANALYZE_PROMPT` | Prompt for generating image descriptions | *See below* |
+| `IMMICH_ANALYZE_ENRICH_PROMPT` | Enable prompt enrichment with asset metadata (API mode only) | `false` |
 | `IMMICH_ANALYZE_API_POLL_INTERVAL` | Poll interval for API mode in seconds | `10` |
 
 #### Application Settings
@@ -254,6 +256,8 @@ Options:
           Maximum number of retry attempts (0 = infinite) [default: 0]
       --retry-delay-seconds <RETRY_DELAY_SECONDS>
           Delay between retry cycles in seconds (fixed) [default: 5]
+      --enrich-prompt
+          Enable prompt enrichment with asset metadata (date, location, camera info)
   -h, --help
           Print help (see more with '--help')
   -V, --version
@@ -362,6 +366,17 @@ immich-analyze \
   --monitor
 ```
 
+**Batch Processing with Prompt Enrichment**
+```bash
+IMMICH_API_URL=http://immich:2283 \
+IMMICH_API_KEY=your_api_key \
+immich-analyze \
+  --data-access-mode immich-api \
+  --interface ollama \
+  --hosts "http://ollama-server:11434" \
+  --enrich-prompt
+```
+
 **Batch Processing with Limited Retries**
 ```bash
 IMMICH_API_URL=http://immich:2283 \
@@ -426,6 +441,7 @@ The application integrates with your Immich instance by analyzing preview images
 - Host unavailability tracking with configurable recovery duration
 - File stability checks (database mode) to ensure images are fully written before processing
 - Event cooldown (database mode) to prevent duplicate processing of rapid filesystem events
+- Prompt enrichment: optionally enrich AI prompts with asset metadata (EXIF metadata, location, camera info, recognized people with ages, tags, resolution, MIME type) via the Immich API for more detailed descriptions
 - Structured logging via `env_logger` for easier debugging and monitoring
 
 ## Troubleshooting
