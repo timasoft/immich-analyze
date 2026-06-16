@@ -28,7 +28,48 @@ pub struct AssetResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExifInfo {
+    #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub city: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub make: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub date_time_original: Option<String>,
+    #[serde(default)]
+    pub lens_model: Option<String>,
+    #[serde(default)]
+    pub exposure_time: Option<String>,
+    #[serde(default)]
+    pub f_number: Option<f64>,
+    #[serde(default)]
+    pub focal_length: Option<f64>,
+    #[serde(default)]
+    pub iso: Option<u32>,
+    #[serde(default)]
+    pub rating: Option<u8>,
+    #[serde(default)]
+    pub time_zone: Option<String>,
+}
+
+/// Response wrapper for full asset metadata including file creation date and EXIF info.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetMetadata {
+    #[serde(default)]
+    pub original_file_name: Option<String>,
+    #[serde(default)]
+    pub r#type: Option<String>,
+    #[serde(default)]
+    pub file_created_at: Option<String>,
+    #[serde(default)]
+    pub exif_info: Option<ExifInfo>,
 }
 
 /// Response wrapper for paginated search results.
@@ -440,6 +481,64 @@ impl ImmichApiProvider {
                         .as_ref()
                         .and_then(|e| e.description.as_ref())
                         .is_some_and(|d| !d.is_empty()));
+                }
+                Ok(resp) => {
+                    last_error = Some(ImageAnalysisError::HttpError {
+                        status: resp.status().as_u16(),
+                        filename: asset_id.to_string(),
+                        response: resp.text().await.unwrap_or_default(),
+                    });
+                }
+                Err(e) => {
+                    last_error = Some(ImageAnalysisError::HttpError {
+                        status: 0,
+                        filename: asset_id.to_string(),
+                        response: e.to_string(),
+                    });
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| ImageAnalysisError::HttpError {
+            status: 0,
+            filename: asset_id.to_string(),
+            response: "No API keys available".to_string(),
+        }))
+    }
+
+    /// Gets full metadata for an asset including EXIF information.
+    ///
+    /// # Arguments
+    /// * `asset_id` - UUID of the asset
+    ///
+    /// # Returns
+    /// AssetMetadata containing all available metadata
+    pub async fn get_asset_metadata(
+        &self,
+        asset_id: &Uuid,
+    ) -> Result<AssetMetadata, ImageAnalysisError> {
+        let url = self
+            .base_url
+            .join(&format!("/api/assets/{}", asset_id))
+            .map_err(|e| ImageAnalysisError::InvalidConfig {
+                error: e.to_string(),
+            })?;
+
+        let mut last_error = None;
+        for client in &self.clients {
+            let response = client.get(url.clone()).send().await;
+
+            match response {
+                Ok(resp) if resp.status().is_success() => {
+                    let metadata: AssetMetadata =
+                        resp.json()
+                            .await
+                            .map_err(|e| ImageAnalysisError::JsonParsing {
+                                filename: asset_id.to_string(),
+                                error: e.to_string(),
+                            })?;
+
+                    return Ok(metadata);
                 }
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {

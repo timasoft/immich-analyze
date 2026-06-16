@@ -8,6 +8,7 @@ use crate::{
     llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
     ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     progress::SimpleProgress,
+    prompt_enricher::enrich_prompt_if_needed,
     utils::extract_uuid_from_preview_filename,
 };
 use futures::stream::{self, StreamExt};
@@ -100,7 +101,6 @@ async fn process_file(
     let http_client = ctx.http_client;
     let data_access = ctx.data_access;
     let model_name = ctx.model_name;
-    let prompt = ctx.prompt;
     let ollama_manager = ctx.ollama_manager;
     let llamacpp_manager = ctx.llamacpp_manager;
     let timeout = ctx.timeout;
@@ -114,6 +114,9 @@ async fn process_file(
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
     let preview_path = data_access.get_preview_path(&asset_id).await?;
+    let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
+        .await
+        .unwrap_or_else(|| ctx.prompt.to_string());
 
     let analysis = match (ollama_manager, llamacpp_manager) {
         (Some(manager), _) => {
@@ -121,7 +124,7 @@ async fn process_file(
                 http_client,
                 &preview_path,
                 model_name,
-                prompt,
+                &final_prompt,
                 timeout,
                 manager,
                 ctx.max_retries,
@@ -134,7 +137,7 @@ async fn process_file(
                 http_client,
                 &preview_path,
                 model_name,
-                prompt,
+                &final_prompt,
                 timeout,
                 manager,
                 ctx.max_retries,
@@ -242,6 +245,7 @@ pub async fn process_files_concurrently(
                 llamacpp_manager: llamacpp_manager.as_ref(),
                 max_retries: NonZeroU32::new(args.max_retries),
                 retry_delay: Duration::from_secs(args.retry_delay_seconds),
+                enrich_prompt: args.enrich_prompt,
             };
 
             let result = if overwrite_existing {

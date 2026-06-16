@@ -96,4 +96,7 @@ pub struct Args {
     /// Delay between retry cycles in seconds (fixed)
     #[arg(long, default_value_t = 5)]
     pub retry_delay_seconds: u64,
+    /// Enable prompt enrichment with asset metadata (date, location, camera info)
+    #[arg(long, default_value_t = false)]
+    pub enrich_prompt: bool,
 }
