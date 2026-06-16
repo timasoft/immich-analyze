@@ -65,6 +65,10 @@ if [ -n "$IMMICH_ANALYZE_LANG" ]; then
     args+=("--lang" "$IMMICH_ANALYZE_LANG")
 fi
 
+if [ "${IMMICH_ANALYZE_ENRICH_PROMPT:-false}" = "true" ]; then
+    args+=("--enrich-prompt")
+fi
+
 # Numeric validations
 if [[ "$IMMICH_ANALYZE_MAX_CONCURRENT" =~ ^[0-9]+$ ]]; then
     args+=("--max-concurrent" "$IMMICH_ANALYZE_MAX_CONCURRENT")
