@@ -25,6 +25,13 @@ static PREVIEW_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 static UUID_PATTERN: OnceLock<Regex> = OnceLock::new();
 
+static AI_BLOCK_PATTERN: OnceLock<Regex> = OnceLock::new();
+
+pub fn get_ai_block_pattern() -> &'static Regex {
+    AI_BLOCK_PATTERN
+        .get_or_init(|| Regex::new(r"(?s)\[AI\].*?\[/AI\]").expect("Invalid AI block regex"))
+}
+
 pub fn extract_uuid_from_preview_filename(filename: &str) -> Result<Uuid, ImageAnalysisError> {
     let preview_pattern = PREVIEW_PATTERN.get_or_init(|| {
         Regex::new(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[-_]preview")

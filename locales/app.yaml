@@ -92,6 +92,9 @@ main.not_a_directory:
 main.ignore_existing_enabled:
   en: " Ignore existing database entries mode enabled"
   ru: " Включен режим игнорирования существующих записей в базе данных"
+main.missing_ai_enabled:
+  en: " Processing assets without [AI] block (skipping those with AI descriptions)"
+  ru: " Обработка ассетов без блока [AI] (пропускаем те, у которых есть AI-описание)"
 main.database_loaded:
   en: " Loaded database: %{count} records from %{path}"
   ru: " Загружена база данных: %{count} записей из %{path}"

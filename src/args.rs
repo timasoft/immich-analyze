@@ -1,10 +1,22 @@
 use crate::data_access::DataAccessMode;
 use clap::{Parser, ValueEnum};
 
-#[derive(ValueEnum, Debug, Clone, PartialEq)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Default)]
 pub enum Interface {
+    #[default]
     Ollama,
     Llamacpp,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Default)]
+pub enum OverwritePolicy {
+    /// Skip any asset that already has a description
+    #[default]
+    None,
+    /// Process all assets regardless of existing descriptions
+    All,
+    /// Skip only if description contains [AI]...[/AI] block; process human-only and empty descriptions
+    MissingAi,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -16,9 +28,19 @@ pub struct Args {
     /// Enable combined mode: process existing images then monitor for new ones
     #[arg(short, long)]
     pub combined: bool,
-    /// Overwrite existing entries in database (process all files regardless of existing descriptions)
+    /// Overwrite existing entries in database (process all files regardless of existing descriptions) (same as --overwrite-policy all)
     #[arg(short, long)]
     pub overwrite_existing: bool,
+    /// Overwrite policy [default: none]:
+    /// none (skip any with description),
+    /// all (process everything),
+    /// missing-ai (process only if no [AI]...[/AI] block).
+    /// Takes precedence over --overwrite-existing.
+    #[arg(short = 'O', long, value_enum)]
+    pub overwrite_policy: Option<OverwritePolicy>,
+    /// When overwriting or adding, preserve human-entered text by only replacing the [AI]...[/AI] block
+    #[arg(short, long)]
+    pub preserve_human: bool,
     /// Path to Immich root directory (containing upload/, thumbs/ folders)
     #[arg(long, default_value = "/var/lib/immich")]
     pub immich_root: String,
@@ -99,4 +121,15 @@ pub struct Args {
     /// Enable prompt enrichment with asset metadata (date, location, camera info)
     #[arg(long, default_value_t = false)]
     pub enrich_prompt: bool,
+}
+
+impl Args {
+    #[must_use]
+    pub fn effective_overwrite_policy(&self) -> OverwritePolicy {
+        match self.overwrite_policy {
+            Some(policy) => policy,
+            None if self.overwrite_existing => OverwritePolicy::All,
+            None => OverwritePolicy::default(),
+        }
+    }
 }

@@ -192,6 +192,37 @@ impl DataAccess {
         }
     }
 
+    /// Gets the existing description for an asset, if any.
+    ///
+    /// # Database mode
+    /// Queries `asset_exif` table directly to retrieve the current description string.
+    ///
+    /// # API mode
+    /// Fetches asset metadata via API and extracts the `exif_info.description` field.
+    ///
+    /// # Arguments
+    /// * `asset_id` - UUID of the target asset
+    ///
+    /// # Returns
+    /// `Some(description)` if a non-empty description exists, `None` otherwise.
+    pub async fn get_description(
+        &self,
+        asset_id: &Uuid,
+    ) -> Result<Option<String>, ImageAnalysisError> {
+        match self {
+            Self::Database { client, .. } => {
+                crate::database::get_asset_description(client, *asset_id).await
+            }
+            Self::ImmichApi { provider } => match provider.get_asset_metadata(asset_id).await {
+                Ok(metadata) => Ok(metadata
+                    .exif_info
+                    .and_then(|e| e.description)
+                    .filter(|d| !d.is_empty())),
+                Err(e) => Err(e),
+            },
+        }
+    }
+
     /// Checks if an asset already has a description.
     ///
     /// # Database mode

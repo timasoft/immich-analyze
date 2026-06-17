@@ -9,6 +9,33 @@ pub struct ImageAnalysisResult {
     pub asset_id: Uuid,
 }
 
+/// Gets the existing description for an asset from database
+pub async fn get_asset_description(
+    client: &PgClient,
+    asset_id: Uuid,
+) -> Result<Option<String>, ImageAnalysisError> {
+    let query = "
+        SELECT description FROM asset_exif 
+        WHERE \"assetId\"::text = $1 
+        AND description IS NOT NULL 
+        AND description != ''
+    ";
+    let asset_id_str = asset_id.to_string();
+    match client.query_opt(query, &[&asset_id_str]).await {
+        Ok(Some(row)) => Ok(row.get::<_, Option<String>>(0)),
+        Ok(None) => Ok(None),
+        Err(e) => {
+            eprintln!(
+                "{}",
+                rust_i18n::t!("database.error_checking_description", error = e.to_string())
+            );
+            Err(ImageAnalysisError::DatabaseError {
+                error: e.to_string(),
+            })
+        }
+    }
+}
+
 /// Check if asset already has description in database
 pub async fn asset_has_description(
     client: &PgClient,

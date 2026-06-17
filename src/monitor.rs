@@ -1,14 +1,14 @@
 use crate::{
-    args::Interface,
+    args::{Interface, OverwritePolicy},
     config::{FileProcessingConfig, MonitorConfig},
     data_access::DataAccess,
     error::ImageAnalysisError,
     llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
     ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     prompt_enricher::enrich_prompt_if_needed,
-    utils::extract_uuid_from_preview_filename,
+    utils::{extract_uuid_from_preview_filename, get_ai_block_pattern},
 };
-use log::error;
+use log::{error, warn};
 use notify::{
     event::ModifyKind,
     {Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher},
@@ -84,13 +84,33 @@ pub async fn process_new_file(
     );
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    if !config.overwrite_existing && data_access.has_description(&asset_id).await? {
-        println!(
-            "{}",
-            rust_i18n::t!("monitor.file_already_in_db", filename = filename)
-        );
-        return Ok(());
-    }
+    let existing_description = match config.overwrite_policy {
+        OverwritePolicy::All => None,
+        OverwritePolicy::None => {
+            if data_access.has_description(&asset_id).await? {
+                println!(
+                    "{}",
+                    rust_i18n::t!("monitor.file_already_in_db", filename = filename)
+                );
+                return Ok(());
+            }
+            None
+        }
+        OverwritePolicy::MissingAi => match data_access.get_description(&asset_id).await {
+            Ok(Some(desc)) => {
+                if get_ai_block_pattern().is_match(&desc) {
+                    println!(
+                        "{}",
+                        rust_i18n::t!("monitor.file_already_in_db", filename = filename)
+                    );
+                    return Ok(());
+                }
+                Some(desc)
+            }
+            Ok(None) => None,
+            Err(e) => return Err(e),
+        },
+    };
 
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await
@@ -132,8 +152,39 @@ pub async fn process_new_file(
                 "{}",
                 rust_i18n::t!("monitor.processing_success", filename = filename)
             );
+
+            let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
+            let final_description = if config.preserve_human {
+                let existing = match existing_description {
+                    Some(desc) => desc,
+                    None => match data_access.get_description(&analysis.asset_id).await {
+                        Ok(Some(desc)) => desc,
+                        Ok(None) => ai_wrapped.clone(),
+                        Err(e) => {
+                            warn!(
+                                "Failed to get existing description for asset {}, cannot preserve human text: {}",
+                                analysis.asset_id,
+                                e
+                            );
+                            return Err(e);
+                        }
+                    },
+                };
+
+                let re = get_ai_block_pattern();
+                if re.is_match(&existing) {
+                    re.replace(&existing, format!("\n{}\n", ai_wrapped))
+                        .trim()
+                        .to_string()
+                } else {
+                    format!("{}\n\n{}", existing.trim(), ai_wrapped)
+                }
+            } else {
+                ai_wrapped
+            };
+
             data_access
-                .update_description(&analysis.asset_id, &analysis.description)
+                .update_description(&analysis.asset_id, &final_description)
                 .await?;
             println!(
                 "{}",
@@ -309,10 +360,11 @@ pub async fn monitor_folder(
                                             let file_processing_config = FileProcessingConfig {
                                                 file_write_timeout: config.file_write_timeout,
                                                 file_check_interval: config.file_check_interval,
-                                                overwrite_existing: config.overwrite_existing,
+                                                overwrite_policy: config.overwrite_policy,
                                                 request_timeout: config.timeout,
                                                 max_retries: config.max_retries,
                                                 retry_delay_seconds: config.retry_delay_seconds,
+                                                preserve_human: config.preserve_human,
                                             };
 
                                             tokio::spawn(async move {
@@ -325,9 +377,11 @@ pub async fn monitor_folder(
                                                     timeout: file_processing_config.request_timeout,
                                                     ollama_manager: ollama_manager_clone.as_ref(),
                                                     llamacpp_manager: llamacpp_manager_clone.as_ref(),
+                                                    overwrite_policy: file_processing_config.overwrite_policy,
                                                     max_retries: file_processing_config.max_retries,
                                                     retry_delay: Duration::from_secs(file_processing_config.retry_delay_seconds),
                                                     enrich_prompt: config_clone.enrich_prompt,
+                                                    preserve_human: config_clone.preserve_human,
                                                 };
                                                 let result = process_new_file(
                                                     &ctx,
@@ -465,18 +519,21 @@ pub async fn monitor_folder(
                                                 timeout: config_clone.timeout,
                                                 ollama_manager: ollama_manager_clone.as_ref(),
                                                 llamacpp_manager: llamacpp_manager_clone.as_ref(),
+                                                overwrite_policy: config_clone.overwrite_policy,
                                                 max_retries: config_clone.max_retries,
                                                 retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
                                                 enrich_prompt: config_clone.enrich_prompt,
+                                                preserve_human: config_clone.preserve_human,
                                             };
 
                                             let file_processing_config = FileProcessingConfig {
                                                 file_write_timeout: config_clone.file_write_timeout,
                                                 file_check_interval: config_clone.file_check_interval,
-                                                overwrite_existing: config_clone.overwrite_existing,
+                                                overwrite_policy: config_clone.overwrite_policy,
                                                 request_timeout: config_clone.timeout,
                                                 max_retries: config_clone.max_retries,
                                                 retry_delay_seconds: config_clone.retry_delay_seconds,
+                                                preserve_human: config_clone.preserve_human,
                                             };
 
                                             let result = process_new_file(

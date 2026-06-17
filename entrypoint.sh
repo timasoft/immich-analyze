@@ -57,7 +57,9 @@ if [ -n "$IMMICH_ANALYZE_PROMPT" ]; then
     args+=("--prompt" "$IMMICH_ANALYZE_PROMPT")
 fi
 
-if [ "${IMMICH_ANALYZE_OVERWRITE_EXISTING:-false}" = "true" ]; then
+if [ -n "$IMMICH_ANALYZE_OVERWRITE_POLICY" ]; then
+    args+=("--overwrite-policy" "$IMMICH_ANALYZE_OVERWRITE_POLICY")
+elif [ "${IMMICH_ANALYZE_OVERWRITE_EXISTING:-false}" = "true" ]; then
     args+=("--overwrite-existing")
 fi
 
@@ -67,6 +69,10 @@ fi
 
 if [ "${IMMICH_ANALYZE_ENRICH_PROMPT:-false}" = "true" ]; then
     args+=("--enrich-prompt")
+fi
+
+if [ "${IMMICH_ANALYZE_PRESERVE_HUMAN:-false}" = "true" ]; then
+    args+=("--preserve-human")
 fi
 
 # Numeric validations
