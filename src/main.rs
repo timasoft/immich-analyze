@@ -223,6 +223,8 @@ async fn run_batch_mode(
     let results =
         process_files_concurrently(assets, &http_client, data_access, args, locale, progress).await;
 
-    file_processing::display_results(&results, args.max_concurrent > 1)?;
+    if !args.no_final_output {
+        file_processing::display_results(&results, args.max_concurrent > 1)?;
+    }
     Ok(())
 }

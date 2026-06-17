@@ -121,6 +121,9 @@ pub struct Args {
     /// Enable prompt enrichment with asset metadata (date, location, camera info)
     #[arg(long, default_value_t = false)]
     pub enrich_prompt: bool,
+    /// Disable final output with analysis results and statistics after batch processing
+    #[arg(long, default_value_t = false)]
+    pub no_final_output: bool,
 }
 
 impl Args {

@@ -199,6 +199,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent AI requests | `4` |
 | `IMMICH_ANALYZE_UNAVAILABLE_DURATION` | Host availability check interval in seconds | `60` |
 | `IMMICH_ANALYZE_TIMEOUT` | AI request timeout in seconds | `300` |
+| `IMMICH_ANALYZE_NO_FINAL_OUTPUT` | If true, disable final output with analysis results and statistics after batch processing | `false` |
 | `IMMICH_ANALYZE_MAX_RETRIES` | Maximum retry attempts (0 = infinite) | `0` |
 | `IMMICH_ANALYZE_RETRY_DELAY_SECONDS` | Delay between retry cycles in seconds | `5` |
 | `RUST_LOG` | Logging level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
@@ -265,6 +266,8 @@ Options:
           Delay between retry cycles in seconds (fixed) [default: 5]
       --enrich-prompt
           Enable prompt enrichment with asset metadata (date, location, camera info)
+      --no-final-output
+          Disable final output with analysis results and statistics after batch processing
   -h, --help
           Print help (see more with '--help')
   -V, --version
@@ -416,6 +419,16 @@ immich-analyze \
   --hosts "http://llamacpp-server:8080" \
   --max-retries 5 \
   --retry-delay-seconds 15
+```
+
+**Batch Processing Without Final Results Output**
+```bash
+immich-analyze \
+  --data-access-mode database \
+  --postgres-url "host=localhost user=postgres dbname=immich password=password" \
+  --interface ollama \
+  --hosts "http://ollama-server:11434" \
+  --no-final-output
 ```
 
 ### Enable Debug Logging

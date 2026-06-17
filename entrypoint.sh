@@ -75,6 +75,10 @@ if [ "${IMMICH_ANALYZE_PRESERVE_HUMAN:-false}" = "true" ]; then
     args+=("--preserve-human")
 fi
 
+if [ "${IMMICH_ANALYZE_NO_FINAL_OUTPUT:-false}" = "true" ]; then
+    args+=("--no-final-output")
+fi
+
 # Numeric validations
 if [[ "$IMMICH_ANALYZE_MAX_CONCURRENT" =~ ^[0-9]+$ ]]; then
     args+=("--max-concurrent" "$IMMICH_ANALYZE_MAX_CONCURRENT")
