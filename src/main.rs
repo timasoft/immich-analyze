@@ -16,7 +16,7 @@ mod progress;
 mod prompt_enricher;
 mod utils;
 
-use args::Args;
+use args::{Args, OverwritePolicy};
 use config::MonitorConfig;
 use data_access::{DataAccess, DataAccessMode};
 use file_processing::process_files_concurrently;
@@ -140,7 +140,8 @@ async fn run_monitor_mode(
     locale: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.monitor_mode_activated"));
-    if args.overwrite_existing {
+    let overwrite_policy = args.effective_overwrite_policy();
+    if overwrite_policy != OverwritePolicy::None {
         println!("{}", rust_i18n::t!("main.ignore_existing_enabled"));
     }
     let monitor_config = MonitorConfig {
@@ -149,9 +150,9 @@ async fn run_monitor_mode(
         event_cooldown: args.event_cooldown,
         timeout: args.timeout,
         lang: locale.to_string(),
-        overwrite_existing: args.overwrite_existing,
+        overwrite_policy,
         hosts: args.hosts.clone(),
-        interface: args.interface.clone(),
+        interface: args.interface,
         api_key: args.api_key.clone(),
         unavailable_duration: args.unavailable_duration,
         api_poll_interval: args.api_poll_interval,
@@ -201,7 +202,8 @@ async fn run_batch_mode(
         "{}",
         rust_i18n::t!("main.timeout", seconds = args.timeout.to_string())
     );
-    if args.overwrite_existing {
+    let overwrite_policy = args.effective_overwrite_policy();
+    if overwrite_policy != OverwritePolicy::None {
         println!("{}", rust_i18n::t!("main.ignore_existing_enabled"));
     }
 

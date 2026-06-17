@@ -1,5 +1,5 @@
 use crate::{
-    args::Interface,
+    args::{Interface, OverwritePolicy},
     config::{FileProcessingConfig, MonitorConfig},
     data_access::DataAccess,
     error::ImageAnalysisError,
@@ -84,7 +84,19 @@ pub async fn process_new_file(
     );
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    if !config.overwrite_existing && data_access.has_description(&asset_id).await? {
+    let should_skip = match config.overwrite_policy {
+        OverwritePolicy::All => false,
+        OverwritePolicy::None => data_access.has_description(&asset_id).await?,
+        OverwritePolicy::MissingAi => match data_access.get_description(&asset_id).await {
+            Ok(Some(desc)) => get_ai_block_pattern().is_match(&desc),
+            Ok(None) => false,
+            Err(e) => {
+                return Err(e);
+            }
+        },
+    };
+
+    if should_skip {
         println!(
             "{}",
             rust_i18n::t!("monitor.file_already_in_db", filename = filename)
@@ -337,7 +349,7 @@ pub async fn monitor_folder(
                                             let file_processing_config = FileProcessingConfig {
                                                 file_write_timeout: config.file_write_timeout,
                                                 file_check_interval: config.file_check_interval,
-                                                overwrite_existing: config.overwrite_existing,
+                                                overwrite_policy: config.overwrite_policy,
                                                 request_timeout: config.timeout,
                                                 max_retries: config.max_retries,
                                                 retry_delay_seconds: config.retry_delay_seconds,
@@ -354,6 +366,7 @@ pub async fn monitor_folder(
                                                     timeout: file_processing_config.request_timeout,
                                                     ollama_manager: ollama_manager_clone.as_ref(),
                                                     llamacpp_manager: llamacpp_manager_clone.as_ref(),
+                                                    overwrite_policy: file_processing_config.overwrite_policy,
                                                     max_retries: file_processing_config.max_retries,
                                                     retry_delay: Duration::from_secs(file_processing_config.retry_delay_seconds),
                                                     enrich_prompt: config_clone.enrich_prompt,
@@ -495,6 +508,7 @@ pub async fn monitor_folder(
                                                 timeout: config_clone.timeout,
                                                 ollama_manager: ollama_manager_clone.as_ref(),
                                                 llamacpp_manager: llamacpp_manager_clone.as_ref(),
+                                                overwrite_policy: config_clone.overwrite_policy,
                                                 max_retries: config_clone.max_retries,
                                                 retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
                                                 enrich_prompt: config_clone.enrich_prompt,
@@ -504,7 +518,7 @@ pub async fn monitor_folder(
                                             let file_processing_config = FileProcessingConfig {
                                                 file_write_timeout: config_clone.file_write_timeout,
                                                 file_check_interval: config_clone.file_check_interval,
-                                                overwrite_existing: config_clone.overwrite_existing,
+                                                overwrite_policy: config_clone.overwrite_policy,
                                                 request_timeout: config_clone.timeout,
                                                 max_retries: config_clone.max_retries,
                                                 retry_delay_seconds: config_clone.retry_delay_seconds,

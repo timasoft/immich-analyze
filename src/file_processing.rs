@@ -1,5 +1,5 @@
 use crate::{
-    args::Interface,
+    args::{Interface, OverwritePolicy},
     config::ProcessingContext,
     data_access::DataAccess,
     database::ImageAnalysisResult,
@@ -88,7 +88,19 @@ async fn process_file_with_existing_check(
         .to_string();
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    if ctx.data_access.has_description(&asset_id).await? {
+    let should_skip = match ctx.overwrite_policy {
+        OverwritePolicy::All => false,
+        OverwritePolicy::None => ctx.data_access.has_description(&asset_id).await?,
+        OverwritePolicy::MissingAi => match ctx.data_access.get_description(&asset_id).await {
+            Ok(Some(desc)) => get_ai_block_pattern().is_match(&desc),
+            Ok(None) => false,
+            Err(e) => {
+                return Err(e);
+            }
+        },
+    };
+
+    if should_skip {
         return Err(ImageAnalysisError::AlreadyProcessed { filename });
     }
     process_file(ctx, path).await
@@ -223,7 +235,7 @@ pub async fn process_files_concurrently(
         let prompt = args.prompt.clone();
         let progress = Arc::clone(&progress);
         let lang = locale.to_string();
-        let overwrite_existing = args.overwrite_existing;
+        let overwrite_policy = args.effective_overwrite_policy();
         let asset_id = asset.id;
         let timeout = args.timeout;
         let ollama_manager = ollama_manager.clone();
@@ -271,17 +283,14 @@ pub async fn process_files_concurrently(
                 timeout,
                 ollama_manager: ollama_manager.as_ref(),
                 llamacpp_manager: llamacpp_manager.as_ref(),
+                overwrite_policy,
                 max_retries: NonZeroU32::new(args.max_retries),
                 retry_delay: Duration::from_secs(args.retry_delay_seconds),
                 enrich_prompt: args.enrich_prompt,
                 preserve_human: args.preserve_human,
             };
 
-            let result = if overwrite_existing {
-                process_file(&ctx, &path).await
-            } else {
-                process_file_with_existing_check(&ctx, &path).await
-            };
+            let result = process_file_with_existing_check(&ctx, &path).await;
             {
                 let mut progress_guard = progress.lock().await;
                 progress_guard

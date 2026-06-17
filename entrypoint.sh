@@ -57,7 +57,9 @@ if [ -n "$IMMICH_ANALYZE_PROMPT" ]; then
     args+=("--prompt" "$IMMICH_ANALYZE_PROMPT")
 fi
 
-if [ "${IMMICH_ANALYZE_OVERWRITE_EXISTING:-false}" = "true" ]; then
+if [ -n "$IMMICH_ANALYZE_OVERWRITE_POLICY" ]; then
+    args+=("--overwrite-policy" "$IMMICH_ANALYZE_OVERWRITE_POLICY")
+elif [ "${IMMICH_ANALYZE_OVERWRITE_EXISTING:-false}" = "true" ]; then
     args+=("--overwrite-existing")
 fi
 

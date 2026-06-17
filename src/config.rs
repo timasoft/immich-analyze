@@ -1,5 +1,7 @@
 use crate::{
-    args::Interface, data_access::DataAccess, llamacpp::LlamaCppHostManager,
+    args::{Interface, OverwritePolicy},
+    data_access::DataAccess,
+    llamacpp::LlamaCppHostManager,
     ollama::OllamaHostManager,
 };
 use reqwest::Client;
@@ -9,7 +11,7 @@ use std::{num::NonZeroU32, sync::Arc, time::Duration};
 pub struct FileProcessingConfig {
     pub file_write_timeout: u64,
     pub file_check_interval: u64,
-    pub overwrite_existing: bool,
+    pub overwrite_policy: OverwritePolicy,
     pub request_timeout: u64,
     pub max_retries: Option<NonZeroU32>,
     pub retry_delay_seconds: u64,
@@ -23,7 +25,7 @@ pub struct MonitorConfig {
     pub event_cooldown: u64,
     pub timeout: u64,
     pub lang: String,
-    pub overwrite_existing: bool,
+    pub overwrite_policy: OverwritePolicy,
     pub hosts: Vec<String>,
     pub interface: Interface,
     pub api_key: Option<String>,
@@ -44,6 +46,7 @@ pub struct ProcessingContext<'a> {
     pub timeout: u64,
     pub ollama_manager: Option<&'a Arc<OllamaHostManager>>,
     pub llamacpp_manager: Option<&'a Arc<LlamaCppHostManager>>,
+    pub overwrite_policy: OverwritePolicy,
     pub max_retries: Option<NonZeroU32>,
     pub retry_delay: Duration,
     pub enrich_prompt: bool,
