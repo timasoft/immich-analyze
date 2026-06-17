@@ -21,6 +21,7 @@ The application supports two data access modes:
 - Internationalization support (English and Russian)
 - Docker container support
 - Prompt enrichment: optionally enrich AI prompts with asset metadata (EXIF, location, camera info, people with ages, tags, resolution, MIME type) - works **only** in Immich API mode
+- Selective description updates: preserves human-written text outside `[AI]...[/AI]` blocks when using `--preserve-human` with `--overwrite-existing`
 - Structured logging via `env_logger` (configure with `RUST_LOG` environment variable)
 
 ## Prerequisites
@@ -192,6 +193,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `IMMICH_ANALYZE_OVERWRITE_EXISTING` | If true, overwrite existing descriptions | `false` |
+| `IMMICH_ANALYZE_PRESERVE_HUMAN` | If true, preserve human text outside `[AI]...[/AI]` blocks on overwrite (requires `IMMICH_ANALYZE_OVERWRITE_EXISTING=true`) | `false` |
 | `IMMICH_ANALYZE_LANG` | Interface language for the application (en, ru) | `en` |
 | `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent AI requests | `4` |
 | `IMMICH_ANALYZE_UNAVAILABLE_DURATION` | Host availability check interval in seconds | `60` |
@@ -216,6 +218,8 @@ Options:
           Enable combined mode: process existing images then monitor for new ones
   -o, --overwrite-existing
           Overwrite existing entries in database (process all files regardless of existing descriptions)
+      --preserve-human
+          When overwriting, preserve human-entered text by only replacing the [AI]...[/AI] block. Requires --overwrite-existing
       --immich-root <IMMICH_ROOT>
           Path to Immich root directory (containing upload/, thumbs/ folders) [default: /var/lib/immich]
       --postgres-url <POSTGRES_URL>
@@ -286,6 +290,17 @@ immich-analyze \
   --postgres-url "host=localhost user=postgres dbname=immich password=password" \
   --interface llamacpp \
   --hosts "http://llamacpp-server:8080"
+```
+
+**Batch Processing with Human Text Preservation**
+```bash
+immich-analyze \
+  --data-access-mode database \
+  --postgres-url "host=localhost user=postgres dbname=immich password=password" \
+  --interface ollama \
+  --hosts "http://ollama-server:11434" \
+  --overwrite-existing \
+  --preserve-human
 ```
 
 **Monitor Mode (Watch for new images)**
@@ -442,6 +457,7 @@ The application integrates with your Immich instance by analyzing preview images
 - File stability checks (database mode) to ensure images are fully written before processing
 - Event cooldown (database mode) to prevent duplicate processing of rapid filesystem events
 - Prompt enrichment: optionally enrich AI prompts with asset metadata (EXIF metadata, location, camera info, recognized people with ages, tags, resolution, MIME type) via the Immich API for more detailed descriptions
+- Selective description preservation: when using `--overwrite-existing` with `--preserve-human`, only the `[AI]...[/AI]` block in the description is replaced, preserving any human-written text outside this block. If no `[AI]...[/AI]` block exists, the AI-generated block is appended to the existing description
 - Structured logging via `env_logger` for easier debugging and monitoring
 
 ## Troubleshooting
