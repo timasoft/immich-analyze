@@ -8,7 +8,7 @@ use crate::{
     prompt_enricher::enrich_prompt_if_needed,
     utils::{extract_uuid_from_preview_filename, get_ai_block_pattern},
 };
-use log::error;
+use log::{error, warn};
 use notify::{
     event::ModifyKind,
     {Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher},
@@ -84,25 +84,33 @@ pub async fn process_new_file(
     );
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    let should_skip = match config.overwrite_policy {
-        OverwritePolicy::All => false,
-        OverwritePolicy::None => data_access.has_description(&asset_id).await?,
-        OverwritePolicy::MissingAi => match data_access.get_description(&asset_id).await {
-            Ok(Some(desc)) => get_ai_block_pattern().is_match(&desc),
-            Ok(None) => false,
-            Err(e) => {
-                return Err(e);
+    let existing_description = match config.overwrite_policy {
+        OverwritePolicy::All => None,
+        OverwritePolicy::None => {
+            if data_access.has_description(&asset_id).await? {
+                println!(
+                    "{}",
+                    rust_i18n::t!("monitor.file_already_in_db", filename = filename)
+                );
+                return Ok(());
             }
+            None
+        }
+        OverwritePolicy::MissingAi => match data_access.get_description(&asset_id).await {
+            Ok(Some(desc)) => {
+                if get_ai_block_pattern().is_match(&desc) {
+                    println!(
+                        "{}",
+                        rust_i18n::t!("monitor.file_already_in_db", filename = filename)
+                    );
+                    return Ok(());
+                }
+                Some(desc)
+            }
+            Ok(None) => None,
+            Err(e) => return Err(e),
         },
     };
-
-    if should_skip {
-        println!(
-            "{}",
-            rust_i18n::t!("monitor.file_already_in_db", filename = filename)
-        );
-        return Ok(());
-    }
 
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await
@@ -147,26 +155,29 @@ pub async fn process_new_file(
 
             let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
             let final_description = if config.preserve_human {
-                match data_access.get_description(&analysis.asset_id).await {
-                    Ok(Some(existing)) => {
-                        let re = get_ai_block_pattern();
-                        if re.is_match(&existing) {
-                            re.replace(&existing, format!("\n{}\n", ai_wrapped))
-                                .trim()
-                                .to_string()
-                        } else {
-                            format!("{}\n\n{}", existing.trim(), ai_wrapped)
+                let existing = match existing_description {
+                    Some(desc) => desc,
+                    None => match data_access.get_description(&analysis.asset_id).await {
+                        Ok(Some(desc)) => desc,
+                        Ok(None) => ai_wrapped.clone(),
+                        Err(e) => {
+                            warn!(
+                                "Failed to get existing description for asset {}, cannot preserve human text: {}",
+                                analysis.asset_id,
+                                e
+                            );
+                            return Err(e);
                         }
-                    }
-                    Ok(None) => ai_wrapped,
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to get existing description for asset {}, cannot preserve human text: {}",
-                            analysis.asset_id,
-                            e
-                        );
-                        return Err(e);
-                    }
+                    },
+                };
+
+                let re = get_ai_block_pattern();
+                if re.is_match(&existing) {
+                    re.replace(&existing, format!("\n{}\n", ai_wrapped))
+                        .trim()
+                        .to_string()
+                } else {
+                    format!("{}\n\n{}", existing.trim(), ai_wrapped)
                 }
             } else {
                 ai_wrapped

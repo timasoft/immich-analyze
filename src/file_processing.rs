@@ -12,7 +12,7 @@ use crate::{
     utils::{extract_uuid_from_preview_filename, get_ai_block_pattern},
 };
 use futures::stream::{self, StreamExt};
-use log::error;
+use log::{error, warn};
 use reqwest::Client;
 use std::{
     num::NonZeroU32,
@@ -88,27 +88,33 @@ async fn process_file_with_existing_check(
         .to_string();
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    let should_skip = match ctx.overwrite_policy {
-        OverwritePolicy::All => false,
-        OverwritePolicy::None => ctx.data_access.has_description(&asset_id).await?,
-        OverwritePolicy::MissingAi => match ctx.data_access.get_description(&asset_id).await {
-            Ok(Some(desc)) => get_ai_block_pattern().is_match(&desc),
-            Ok(None) => false,
-            Err(e) => {
-                return Err(e);
+    let existing_description = match ctx.overwrite_policy {
+        OverwritePolicy::All => None,
+        OverwritePolicy::None => {
+            if ctx.data_access.has_description(&asset_id).await? {
+                return Err(ImageAnalysisError::AlreadyProcessed { filename });
             }
+            None
+        }
+        OverwritePolicy::MissingAi => match ctx.data_access.get_description(&asset_id).await {
+            Ok(Some(desc)) => {
+                if get_ai_block_pattern().is_match(&desc) {
+                    return Err(ImageAnalysisError::AlreadyProcessed { filename });
+                }
+                Some(desc)
+            }
+            Ok(None) => None,
+            Err(e) => return Err(e),
         },
     };
 
-    if should_skip {
-        return Err(ImageAnalysisError::AlreadyProcessed { filename });
-    }
-    process_file(ctx, path).await
+    process_file(ctx, path, existing_description).await
 }
 
 async fn process_file(
     ctx: &ProcessingContext<'_>,
     path: &Path,
+    existing_description: Option<String>,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     let http_client = ctx.http_client;
     let data_access = ctx.data_access;
@@ -165,26 +171,28 @@ async fn process_file(
     let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
 
     let final_description = if ctx.preserve_human {
-        match data_access.get_description(&analysis.asset_id).await {
-            Ok(Some(existing)) => {
-                let re = get_ai_block_pattern();
-                if re.is_match(&existing) {
-                    re.replace(&existing, format!("\n{}\n", ai_wrapped))
-                        .trim()
-                        .to_string()
-                } else {
-                    format!("{}\n\n{}", existing.trim(), ai_wrapped)
+        let existing = match existing_description {
+            Some(desc) => desc,
+            None => match data_access.get_description(&analysis.asset_id).await {
+                Ok(Some(desc)) => desc,
+                Ok(None) => ai_wrapped.clone(),
+                Err(e) => {
+                    warn!(
+                        "Failed to get existing description for asset {}, cannot preserve human text: {}",
+                        analysis.asset_id, e
+                    );
+                    return Err(e);
                 }
-            }
-            Ok(None) => ai_wrapped,
-            Err(e) => {
-                log::warn!(
-                    "Failed to get existing description for asset {}, cannot preserve human text: {}",
-                    analysis.asset_id,
-                    e
-                );
-                return Err(e);
-            }
+            },
+        };
+
+        let re = get_ai_block_pattern();
+        if re.is_match(&existing) {
+            re.replace(&existing, format!("\n{}\n", ai_wrapped))
+                .trim()
+                .to_string()
+        } else {
+            format!("{}\n\n{}", existing.trim(), ai_wrapped)
         }
     } else {
         ai_wrapped

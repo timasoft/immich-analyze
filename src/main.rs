@@ -141,8 +141,10 @@ async fn run_monitor_mode(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.monitor_mode_activated"));
     let overwrite_policy = args.effective_overwrite_policy();
-    if overwrite_policy != OverwritePolicy::None {
-        println!("{}", rust_i18n::t!("main.ignore_existing_enabled"));
+    match overwrite_policy {
+        OverwritePolicy::All => println!("{}", rust_i18n::t!("main.ignore_existing_enabled")),
+        OverwritePolicy::MissingAi => println!("{}", rust_i18n::t!("main.missing_ai_enabled")),
+        OverwritePolicy::None => {}
     }
     let monitor_config = MonitorConfig {
         file_write_timeout: args.file_write_timeout,
@@ -203,8 +205,10 @@ async fn run_batch_mode(
         rust_i18n::t!("main.timeout", seconds = args.timeout.to_string())
     );
     let overwrite_policy = args.effective_overwrite_policy();
-    if overwrite_policy != OverwritePolicy::None {
-        println!("{}", rust_i18n::t!("main.ignore_existing_enabled"));
+    match overwrite_policy {
+        OverwritePolicy::All => println!("{}", rust_i18n::t!("main.ignore_existing_enabled")),
+        OverwritePolicy::MissingAi => println!("{}", rust_i18n::t!("main.missing_ai_enabled")),
+        OverwritePolicy::None => {}
     }
 
     let http_client = reqwest::Client::builder()
