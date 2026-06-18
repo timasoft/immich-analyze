@@ -34,11 +34,9 @@ impl SimpleProgress {
     pub fn display(&self) {
         let progress = (self.current as f64 / self.total as f64 * 100.0) as u8;
         let elapsed = self.start_time.elapsed().as_secs();
-        let eta = if self.current > 0 {
-            (elapsed * (self.total - self.current)) / self.current
-        } else {
-            0
-        };
+        let eta = (elapsed * (self.total - self.current))
+            .checked_div(self.current)
+            .unwrap_or(0);
         if progress >= 100 {
             println!(
                 "[{:3}%] {}/{} ({}s)",
