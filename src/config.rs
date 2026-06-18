@@ -8,17 +8,6 @@ use reqwest::Client;
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 #[derive(Debug, Clone)]
-pub struct FileProcessingConfig {
-    pub file_write_timeout: u64,
-    pub file_check_interval: u64,
-    pub overwrite_policy: OverwritePolicy,
-    pub request_timeout: u64,
-    pub max_retries: Option<NonZeroU32>,
-    pub retry_delay_seconds: u64,
-    pub preserve_human: bool,
-}
-
-#[derive(Debug, Clone)]
 pub struct MonitorConfig {
     pub file_write_timeout: u64,
     pub file_check_interval: u64,

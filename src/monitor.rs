@@ -1,6 +1,6 @@
 use crate::{
     args::{Interface, OverwritePolicy},
-    config::{FileProcessingConfig, MonitorConfig},
+    config::{MonitorConfig, ProcessingContext},
     data_access::DataAccess,
     error::ImageAnalysisError,
     immich_api::ImmichApiProvider,
@@ -33,9 +33,10 @@ use uuid::Uuid;
 
 /// Process new file with stability checking using data_access abstraction.
 pub async fn process_new_file(
-    ctx: &crate::config::ProcessingContext<'_>,
+    ctx: &ProcessingContext<'_>,
     preview_path: &Path,
-    config: &FileProcessingConfig,
+    file_write_timeout: u64,
+    file_check_interval: u64,
 ) -> Result<(), ImageAnalysisError> {
     let http_client = ctx.http_client;
     let data_access = ctx.data_access;
@@ -55,8 +56,8 @@ pub async fn process_new_file(
     let start_time = Instant::now();
     let mut last_size = 0;
     let mut stable_count = 0;
-    let timeout_duration = Duration::from_secs(config.file_write_timeout);
-    let check_interval = Duration::from_millis(config.file_check_interval);
+    let timeout_duration = Duration::from_secs(file_write_timeout);
+    let check_interval = Duration::from_millis(file_check_interval);
     // Wait for file to be stable
     while start_time.elapsed() < timeout_duration {
         if let Ok(metadata) = std::fs::metadata(preview_path) {
@@ -75,7 +76,7 @@ pub async fn process_new_file(
     }
     if start_time.elapsed() >= timeout_duration {
         return Err(ImageAnalysisError::FileWriteTimeout {
-            timeout: config.file_write_timeout,
+            timeout: file_write_timeout,
             filename: filename.clone(),
         });
     }
@@ -85,7 +86,7 @@ pub async fn process_new_file(
     );
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    let existing_description = match config.overwrite_policy {
+    let existing_description = match ctx.overwrite_policy {
         OverwritePolicy::All => None,
         OverwritePolicy::None => {
             if data_access.has_description(&asset_id).await? {
@@ -124,10 +125,10 @@ pub async fn process_new_file(
                 preview_path,
                 model_name,
                 &final_prompt,
-                config.request_timeout,
+                ctx.timeout,
                 manager,
-                config.max_retries,
-                Duration::from_secs(config.retry_delay_seconds),
+                ctx.max_retries,
+                ctx.retry_delay,
             )
             .await
         }
@@ -137,10 +138,10 @@ pub async fn process_new_file(
                 preview_path,
                 model_name,
                 &final_prompt,
-                config.request_timeout,
+                ctx.timeout,
                 manager,
-                config.max_retries,
-                Duration::from_secs(config.retry_delay_seconds),
+                ctx.max_retries,
+                ctx.retry_delay,
             )
             .await
         }
@@ -155,7 +156,7 @@ pub async fn process_new_file(
             );
 
             let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
-            let final_description = if config.preserve_human {
+            let final_description = if ctx.preserve_human {
                 let existing = match existing_description {
                     Some(desc) => desc,
                     None => match data_access.get_description(&analysis.asset_id).await {
@@ -446,36 +447,29 @@ async fn handle_fs_events(
                         let processing_files_clone = Arc::clone(processing_files);
                         let config_clone = config.clone();
 
-                        let file_processing_config = FileProcessingConfig {
-                            file_write_timeout: config.file_write_timeout,
-                            file_check_interval: config.file_check_interval,
-                            overwrite_policy: config.overwrite_policy,
-                            request_timeout: config.timeout,
-                            max_retries: config.max_retries,
-                            retry_delay_seconds: config.retry_delay_seconds,
-                            preserve_human: config.preserve_human,
-                        };
-
                         tokio::spawn(async move {
                             rust_i18n::set_locale(&config_clone.lang);
-                            let ctx = crate::config::ProcessingContext {
+                            let ctx = ProcessingContext {
                                 http_client: &bg_ctx_clone.http_client,
                                 data_access: &bg_ctx_clone.data_access,
                                 model_name: &bg_ctx_clone.model_name,
                                 prompt: &bg_ctx_clone.prompt,
-                                timeout: file_processing_config.request_timeout,
+                                timeout: config_clone.timeout,
                                 ollama_manager: bg_ctx_clone.ollama_manager.as_ref(),
                                 llamacpp_manager: bg_ctx_clone.llamacpp_manager.as_ref(),
-                                overwrite_policy: file_processing_config.overwrite_policy,
-                                max_retries: file_processing_config.max_retries,
-                                retry_delay: Duration::from_secs(
-                                    file_processing_config.retry_delay_seconds,
-                                ),
+                                overwrite_policy: config_clone.overwrite_policy,
+                                max_retries: config_clone.max_retries,
+                                retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
                                 enrich_prompt: config_clone.enrich_prompt,
                                 preserve_human: config_clone.preserve_human,
                             };
-                            let result =
-                                process_new_file(&ctx, &path_clone, &file_processing_config).await;
+                            let result = process_new_file(
+                                &ctx,
+                                &path_clone,
+                                config_clone.file_write_timeout,
+                                config_clone.file_check_interval,
+                            )
+                            .await;
                             {
                                 let mut files = processing_files_clone
                                     .lock()
@@ -593,7 +587,7 @@ async fn handle_api_poll(
                                 }
                             };
 
-                        let ctx = crate::config::ProcessingContext {
+                        let ctx = ProcessingContext {
                             http_client: &bg_ctx_clone.http_client,
                             data_access: &bg_ctx_clone.data_access,
                             model_name: &bg_ctx_clone.model_name,
@@ -608,18 +602,13 @@ async fn handle_api_poll(
                             preserve_human: config_clone.preserve_human,
                         };
 
-                        let file_processing_config = FileProcessingConfig {
-                            file_write_timeout: config_clone.file_write_timeout,
-                            file_check_interval: config_clone.file_check_interval,
-                            overwrite_policy: config_clone.overwrite_policy,
-                            request_timeout: config_clone.timeout,
-                            max_retries: config_clone.max_retries,
-                            retry_delay_seconds: config_clone.retry_delay_seconds,
-                            preserve_human: config_clone.preserve_human,
-                        };
-
-                        let result =
-                            process_new_file(&ctx, &preview_path, &file_processing_config).await;
+                        let result = process_new_file(
+                            &ctx,
+                            &preview_path,
+                            config_clone.file_write_timeout,
+                            config_clone.file_check_interval,
+                        )
+                        .await;
 
                         let _ = bg_ctx_clone
                             .data_access
