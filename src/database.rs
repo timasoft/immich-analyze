@@ -15,13 +15,12 @@ pub async fn get_asset_description(
     asset_id: Uuid,
 ) -> Result<Option<String>, ImageAnalysisError> {
     let query = "
-        SELECT description FROM asset_exif 
-        WHERE \"assetId\"::text = $1 
-        AND description IS NOT NULL 
+        SELECT description FROM asset_exif
+        WHERE \"assetId\" = $1
+        AND description IS NOT NULL
         AND description != ''
     ";
-    let asset_id_str = asset_id.to_string();
-    match client.query_opt(query, &[&asset_id_str]).await {
+    match client.query_opt(query, &[&asset_id]).await {
         Ok(Some(row)) => Ok(row.get::<_, Option<String>>(0)),
         Ok(None) => Ok(None),
         Err(e) => {
@@ -43,14 +42,13 @@ pub async fn asset_has_description(
 ) -> Result<bool, ImageAnalysisError> {
     let query = "
         SELECT EXISTS (
-            SELECT 1 FROM asset_exif 
-            WHERE \"assetId\"::text = $1 
-            AND description IS NOT NULL 
+            SELECT 1 FROM asset_exif
+            WHERE \"assetId\" = $1
+            AND description IS NOT NULL
             AND description != ''
         )
     ";
-    let asset_id_str = asset_id.to_string();
-    match client.query_one(query, &[&asset_id_str]).await {
+    match client.query_one(query, &[&asset_id]).await {
         Ok(row) => Ok(row.get(0)),
         Err(e) => {
             eprintln!(
@@ -70,11 +68,9 @@ pub async fn update_or_create_asset_description(
     asset_id: Uuid,
     description: &str,
 ) -> Result<(), ImageAnalysisError> {
-    let safe_description = description.replace("'", "''");
-    let safe_asset_id = asset_id.to_string();
     println!(
         "{}",
-        rust_i18n::t!("database.updating_asset", asset_id = asset_id.to_string())
+        rust_i18n::t!("database.updating_asset", asset_id = asset_id)
     );
     let preview: String = description.chars().take(100).collect();
     println!(
@@ -86,105 +82,26 @@ pub async fn update_or_create_asset_description(
         )
     );
 
-    let update_query = format!(
-        r#"
-        UPDATE asset_exif 
-        SET description = E'{}', 
-            "updatedAt" = NOW(),
-            "updateId" = immich_uuid_v7()
-        WHERE "assetId" = '{}'
-        "#,
-        safe_description, safe_asset_id
-    );
-    match client.execute(&update_query, &[]).await {
-        Ok(rows_affected) => {
-            if rows_affected > 0 {
-                println!(
-                    "{}",
-                    rust_i18n::t!("database.update_success", asset_id = asset_id.to_string())
-                );
-                return Ok(());
-            }
-        }
-        Err(e) => {
-            eprintln!(
-                "{}\n{}",
-                rust_i18n::t!(
-                    "database.update_error",
-                    asset_id = asset_id.to_string(),
-                    error = e.to_string()
-                ),
-                rust_i18n::t!("database.sql_query_details", query = update_query)
-            );
-            return Err(ImageAnalysisError::DatabaseError {
-                error: e.to_string(),
-            });
-        }
-    }
-
-    let asset_exists_query = format!(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 FROM asset 
-            WHERE id = '{}'
-        )
-        "#,
-        safe_asset_id
-    );
-    let asset_exists = match client.query_one(&asset_exists_query, &[]).await {
-        Ok(row) => row.get::<_, bool>(0),
-        Err(e) => {
-            eprintln!(
-                "{}",
-                rust_i18n::t!(
-                    "database.asset_existence_check_error",
-                    error = e.to_string()
-                )
-            );
-            return Err(ImageAnalysisError::DatabaseError {
-                error: e.to_string(),
-            });
-        }
-    };
-    if !asset_exists {
-        eprintln!(
-            "{}",
-            rust_i18n::t!(
-                "database.asset_not_in_table",
-                asset_id = asset_id.to_string()
-            )
-        );
-        return Err(ImageAnalysisError::DatabaseError {
-            error: format!(
-                "{}",
-                rust_i18n::t!(
-                    "database.asset_not_found_error",
-                    asset_id = asset_id.to_string()
-                )
-            ),
-        });
-    }
-
-    let insert_query = format!(
-        r#"
+    let upsert_query = r#"
         INSERT INTO asset_exif (
             "assetId", description, "updatedAt", "updateId"
         ) VALUES (
-            '{}', E'{}', NOW(), immich_uuid_v7()
+            $1, $2, NOW(), immich_uuid_v7()
         )
-        ON CONFLICT ("assetId") DO UPDATE 
+        ON CONFLICT ("assetId") DO UPDATE
         SET description = EXCLUDED.description,
             "updatedAt" = NOW(),
             "updateId" = immich_uuid_v7()
-        "#,
-        safe_asset_id, safe_description
-    );
+    "#;
 
-    match client.execute(&insert_query, &[]).await {
+    match client
+        .execute(upsert_query, &[&asset_id, &description])
+        .await
+    {
         Ok(_) => {
             println!(
                 "{}",
-                rust_i18n::t!("database.insert_success", asset_id = asset_id.to_string())
+                rust_i18n::t!("database.insert_success", asset_id = asset_id)
             );
             Ok(())
         }
@@ -193,10 +110,10 @@ pub async fn update_or_create_asset_description(
                 "{}\n{}",
                 rust_i18n::t!(
                     "database.insert_error",
-                    asset_id = asset_id.to_string(),
+                    asset_id = asset_id,
                     error = e.to_string()
                 ),
-                rust_i18n::t!("database.sql_query_details", query = insert_query)
+                rust_i18n::t!("database.sql_query_details", query = upsert_query)
             );
             Err(ImageAnalysisError::DatabaseError {
                 error: e.to_string(),
