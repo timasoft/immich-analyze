@@ -1,6 +1,6 @@
 use crate::error::ImageAnalysisError;
 use crate::immich_api::{AssetRef, ImmichApiProvider};
-use crate::utils::extract_uuid_from_preview_filename;
+use crate::utils::{extract_uuid_from_preview_filename, is_preview_filename};
 use clap::ValueEnum;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -140,7 +140,7 @@ impl DataAccess {
                         } else if path.is_file() {
                             let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-                            if !(filename.contains("_preview.") || filename.contains("-preview.")) {
+                            if !is_preview_filename(filename) {
                                 continue;
                             }
 

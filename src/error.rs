@@ -41,6 +41,87 @@ pub enum ImageAnalysisError {
 }
 
 impl ImageAnalysisError {
+    /// Returns a user-facing localized error message
+    #[must_use]
+    pub fn user_message(&self) -> String {
+        match self {
+            ImageAnalysisError::EmptyFile { filename } => {
+                rust_i18n::t!("error.empty_file", filename = filename).to_string()
+            }
+            ImageAnalysisError::HttpError {
+                status,
+                filename,
+                response,
+            } => rust_i18n::t!(
+                "error.http_error_with_details",
+                filename = filename,
+                status = status.to_string(),
+                response = response
+            )
+            .to_string(),
+            ImageAnalysisError::EmptyResponse { filename } => {
+                rust_i18n::t!("error.empty_response", filename = filename).to_string()
+            }
+            ImageAnalysisError::JsonParsing { filename, error } => rust_i18n::t!(
+                "error.json_parsing_with_details",
+                filename = filename,
+                error = error
+            )
+            .to_string(),
+            ImageAnalysisError::FileWriteTimeout { filename, timeout } => rust_i18n::t!(
+                "error.file_write_timeout_with_details",
+                filename = filename,
+                timeout = timeout.to_string()
+            )
+            .to_string(),
+            ImageAnalysisError::DatabaseError { error } => {
+                rust_i18n::t!("error.database_error", error = error).to_string()
+            }
+            ImageAnalysisError::AllHostsUnavailable => {
+                rust_i18n::t!("error.all_hosts_unavailable").to_string()
+            }
+            ImageAnalysisError::OllamaRequestTimeout => {
+                rust_i18n::t!("error.ollama_request_timeout").to_string()
+            }
+            ImageAnalysisError::LlamaCppRequestTimeout => {
+                rust_i18n::t!("error.llamacpp_request_timeout").to_string()
+            }
+            ImageAnalysisError::ProcessingError { filename, error } => format!(
+                "{}\n{}",
+                error,
+                rust_i18n::t!("error.critical_processing_error", filename = filename),
+            ),
+            ImageAnalysisError::AlreadyProcessed { filename } => {
+                rust_i18n::t!("error.critical_processing_error", filename = filename).to_string()
+            }
+            ImageAnalysisError::InvalidUuid { filename } => format!(
+                "{}\n{}",
+                rust_i18n::t!("error.critical_processing_error", filename = filename),
+                self
+            ),
+            ImageAnalysisError::InvalidImmichStructure { error } => format!(
+                "{}\n{}",
+                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
+                error
+            ),
+            ImageAnalysisError::InvalidApiKey => format!(
+                "{}\n{}",
+                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
+                self
+            ),
+            ImageAnalysisError::InvalidConfig { error } => format!(
+                "{}\n{}",
+                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
+                error
+            ),
+            ImageAnalysisError::HttpClientError { error } => format!(
+                "{}\n{}",
+                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
+                error
+            ),
+        }
+    }
+
     /// Check if this error is retryable (transient)
     #[must_use]
     pub fn is_retryable(&self) -> bool {

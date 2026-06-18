@@ -1,12 +1,13 @@
-use crate::{error::ImageAnalysisError, utils::extract_uuid_from_preview_filename};
-use base64::{Engine, engine::general_purpose::STANDARD};
+use crate::{
+    error::ImageAnalysisError,
+    utils::{extract_uuid_from_preview_filename, read_image_as_base64},
+};
 use log::{debug, error, info, warn};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    io::Read,
     num::NonZeroU32,
     path::Path,
     sync::{Arc, Mutex},
@@ -130,27 +131,7 @@ pub async fn analyze_image(
     debug!("Model: {}, Timeout: {}s", model_name, timeout);
 
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
-    let metadata =
-        std::fs::metadata(image_path).map_err(|e| ImageAnalysisError::ProcessingError {
-            filename: filename.clone(),
-            error: e.to_string(),
-        })?;
-    if metadata.len() == 0 {
-        return Err(ImageAnalysisError::EmptyFile { filename });
-    }
-    let mut image_file =
-        std::fs::File::open(image_path).map_err(|e| ImageAnalysisError::ProcessingError {
-            filename: filename.clone(),
-            error: e.to_string(),
-        })?;
-    let mut image_data = Vec::new();
-    image_file
-        .read_to_end(&mut image_data)
-        .map_err(|e| ImageAnalysisError::ProcessingError {
-            filename: filename.clone(),
-            error: e.to_string(),
-        })?;
-    let base64_image = STANDARD.encode(&image_data);
+    let base64_image = read_image_as_base64(image_path, &filename)?;
 
     // llama.cpp server expects OpenAI-compatible format
     let request_body = serde_json::json!({

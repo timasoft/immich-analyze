@@ -135,6 +135,8 @@ impl std::fmt::Debug for ImmichApiProvider {
 }
 
 impl ImmichApiProvider {
+    const PAGE_SIZE: usize = 1000;
+
     /// Creates a new Immich API provider.
     ///
     /// # Arguments
@@ -183,75 +185,7 @@ impl ImmichApiProvider {
     /// # Returns
     /// Vec<AssetRef> containing all assets with their ID and original path.
     pub async fn get_assets(&self) -> Result<Vec<AssetRef>, ImageAnalysisError> {
-        const PAGE_SIZE: usize = 1000;
-        let mut all_assets = Vec::new();
-
-        let search_url = self.base_url.join("/api/search/metadata").map_err(|e| {
-            ImageAnalysisError::InvalidConfig {
-                error: e.to_string(),
-            }
-        })?;
-
-        for client in &self.clients {
-            let mut page: usize = 1;
-            loop {
-                let body = serde_json::json!({
-                    "page": page,
-                    "size": PAGE_SIZE,
-                    "withExif": true
-                });
-
-                let response = client
-                    .post(search_url.clone())
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(|e| ImageAnalysisError::HttpError {
-                        status: 0,
-                        filename: "assets_list".to_string(),
-                        response: e.to_string(),
-                    })?;
-
-                if !response.status().is_success() {
-                    let status = response.status().as_u16();
-                    let body = response.text().await.unwrap_or_default();
-                    return Err(ImageAnalysisError::HttpError {
-                        status,
-                        filename: "assets_list".to_string(),
-                        response: body,
-                    });
-                }
-
-                let search_result: AssetSearchResponse =
-                    response
-                        .json()
-                        .await
-                        .map_err(|e| ImageAnalysisError::JsonParsing {
-                            filename: "assets_list".to_string(),
-                            error: e.to_string(),
-                        })?;
-
-                if search_result.assets.items.is_empty() {
-                    break;
-                }
-
-                for item in search_result.assets.items {
-                    let asset_id =
-                        Uuid::parse_str(&item.id).map_err(|_| ImageAnalysisError::InvalidUuid {
-                            filename: item.id.clone(),
-                        })?;
-
-                    all_assets.push(AssetRef { id: asset_id });
-                }
-
-                if search_result.assets.next_page.is_none() {
-                    break;
-                }
-                page += 1;
-            }
-        }
-
-        Ok(all_assets)
+        self.search_assets_paginated(None).await
     }
 
     /// Fetches assets created after a specific timestamp from the Immich library.
@@ -277,9 +211,15 @@ impl ImmichApiProvider {
         &self,
         since: impl Into<String>,
     ) -> Result<Vec<AssetRef>, ImageAnalysisError> {
-        const PAGE_SIZE: usize = 1000;
+        self.search_assets_paginated(Some(since.into())).await
+    }
+
+    /// Shared paginated search across all clients.
+    async fn search_assets_paginated(
+        &self,
+        since: Option<String>,
+    ) -> Result<Vec<AssetRef>, ImageAnalysisError> {
         let mut all_assets = Vec::new();
-        let since_str = since.into();
 
         let search_url = self.base_url.join("/api/search/metadata").map_err(|e| {
             ImageAnalysisError::InvalidConfig {
@@ -290,12 +230,14 @@ impl ImmichApiProvider {
         for client in &self.clients {
             let mut page: usize = 1;
             loop {
-                let body = serde_json::json!({
+                let mut body = serde_json::json!({
                     "page": page,
-                    "size": PAGE_SIZE,
+                    "size": Self::PAGE_SIZE,
                     "withExif": true,
-                    "createdAfter": since_str
                 });
+                if let Some(ref since) = since {
+                    body["createdAfter"] = serde_json::json!(since);
+                }
 
                 let response = client
                     .post(search_url.clone())

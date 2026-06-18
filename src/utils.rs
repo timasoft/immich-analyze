@@ -1,7 +1,8 @@
-use crate::error::ImageAnalysisError;
-use log::error;
+use crate::{data_access::DataAccess, database::ImageAnalysisResult, error::ImageAnalysisError};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use log::warn;
 use regex::Regex;
-use std::{borrow::Cow, path::Path, str::FromStr, sync::OnceLock};
+use std::{borrow::Cow, io::Read, path::Path, str::FromStr, sync::OnceLock};
 use uuid::Uuid;
 
 /// Get system locale from environment variables
@@ -58,6 +59,77 @@ pub fn extract_uuid_from_preview_filename(filename: &str) -> Result<Uuid, ImageA
     Err(ImageAnalysisError::InvalidUuid {
         filename: filename.to_string(),
     })
+}
+
+pub fn is_preview_filename(filename: &str) -> bool {
+    filename.contains("_preview.") || filename.contains("-preview.")
+}
+
+pub fn read_image_as_base64(
+    image_path: &Path,
+    filename: &str,
+) -> Result<String, ImageAnalysisError> {
+    let metadata =
+        std::fs::metadata(image_path).map_err(|e| ImageAnalysisError::ProcessingError {
+            filename: filename.to_string(),
+            error: e.to_string(),
+        })?;
+    if metadata.len() == 0 {
+        return Err(ImageAnalysisError::EmptyFile {
+            filename: filename.to_string(),
+        });
+    }
+    let mut image_file =
+        std::fs::File::open(image_path).map_err(|e| ImageAnalysisError::ProcessingError {
+            filename: filename.to_string(),
+            error: e.to_string(),
+        })?;
+    let mut image_data = Vec::new();
+    image_file
+        .read_to_end(&mut image_data)
+        .map_err(|e| ImageAnalysisError::ProcessingError {
+            filename: filename.to_string(),
+            error: e.to_string(),
+        })?;
+    Ok(STANDARD.encode(&image_data))
+}
+
+pub async fn build_final_description(
+    analysis: &ImageAnalysisResult,
+    data_access: &DataAccess,
+    preserve_human: bool,
+    existing_description: Option<String>,
+) -> Result<String, ImageAnalysisError> {
+    let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
+
+    if !preserve_human {
+        return Ok(ai_wrapped);
+    }
+
+    let existing = match existing_description {
+        Some(desc) => desc,
+        None => match data_access.get_description(&analysis.asset_id).await {
+            Ok(Some(desc)) => desc,
+            Ok(None) => ai_wrapped.clone(),
+            Err(e) => {
+                warn!(
+                    "Failed to get existing description for asset {}, cannot preserve human text: {}",
+                    analysis.asset_id, e
+                );
+                return Err(e);
+            }
+        },
+    };
+
+    let re = get_ai_block_pattern();
+    if re.is_match(&existing) {
+        Ok(re
+            .replace(&existing, format!("\n{}\n", ai_wrapped))
+            .trim()
+            .to_string())
+    } else {
+        Ok(format!("{}\n\n{}", existing.trim(), ai_wrapped))
+    }
 }
 
 pub fn determine_locale(
@@ -124,68 +196,4 @@ pub fn validate_immich_directory(path: &Path) -> Result<(), Box<dyn std::error::
         .into());
     }
     Ok(())
-}
-
-pub fn handle_processing_error(error: &ImageAnalysisError, filename: &str) {
-    match error {
-        ImageAnalysisError::EmptyFile { filename } => {
-            eprintln!("{}", rust_i18n::t!("error.empty_file", filename = filename));
-        }
-        ImageAnalysisError::HttpError {
-            filename,
-            status,
-            response,
-        } => {
-            eprintln!(
-                "{}",
-                rust_i18n::t!(
-                    "error.http_error_with_details",
-                    filename = filename,
-                    status = status.to_string(),
-                    response = response
-                )
-            );
-        }
-        ImageAnalysisError::EmptyResponse { filename } => {
-            eprintln!(
-                "{}",
-                rust_i18n::t!("error.empty_response", filename = filename)
-            );
-        }
-        ImageAnalysisError::JsonParsing { filename, error } => {
-            eprintln!(
-                "{}",
-                rust_i18n::t!(
-                    "error.json_parsing_with_details",
-                    filename = filename,
-                    error = error
-                )
-            );
-        }
-        ImageAnalysisError::FileWriteTimeout { filename, timeout } => {
-            eprintln!(
-                "{}",
-                rust_i18n::t!(
-                    "error.file_write_timeout_with_details",
-                    filename = filename,
-                    timeout = timeout.to_string()
-                )
-            );
-        }
-        ImageAnalysisError::AllHostsUnavailable => {
-            eprintln!("{}", rust_i18n::t!("error.all_hosts_unavailable"));
-        }
-        ImageAnalysisError::OllamaRequestTimeout => {
-            eprintln!("{}", rust_i18n::t!("error.ollama_request_timeout"));
-        }
-        ImageAnalysisError::LlamaCppRequestTimeout => {
-            eprintln!("{}", rust_i18n::t!("error.llamacpp_request_timeout"));
-        }
-        _ => {
-            error!(
-                "{}",
-                rust_i18n::t!("error.critical_processing_error", filename = filename)
-            );
-        }
-    }
 }

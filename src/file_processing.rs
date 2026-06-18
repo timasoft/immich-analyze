@@ -9,10 +9,13 @@ use crate::{
     ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     progress::SimpleProgress,
     prompt_enricher::enrich_prompt_if_needed,
-    utils::{extract_uuid_from_preview_filename, get_ai_block_pattern},
+    utils::{
+        build_final_description, extract_uuid_from_preview_filename, get_ai_block_pattern,
+        is_preview_filename,
+    },
 };
 use futures::stream::{self, StreamExt};
-use log::{error, warn};
+use log::error;
 use reqwest::Client;
 use std::{
     num::NonZeroU32,
@@ -56,7 +59,7 @@ pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, Imag
                         stack.push(path);
                     } else if path.is_file()
                         && let Some(filename) = path.file_name().and_then(|f| f.to_str())
-                        && (filename.contains("_preview.") || filename.contains("-preview."))
+                        && is_preview_filename(filename)
                     {
                         preview_files.push(path);
                     }
@@ -168,35 +171,13 @@ async fn process_file(
 
     let _ = data_access.cleanup_preview(&preview_path).await;
 
-    let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
-
-    let final_description = if ctx.preserve_human {
-        let existing = match existing_description {
-            Some(desc) => desc,
-            None => match data_access.get_description(&analysis.asset_id).await {
-                Ok(Some(desc)) => desc,
-                Ok(None) => ai_wrapped.clone(),
-                Err(e) => {
-                    warn!(
-                        "Failed to get existing description for asset {}, cannot preserve human text: {}",
-                        analysis.asset_id, e
-                    );
-                    return Err(e);
-                }
-            },
-        };
-
-        let re = get_ai_block_pattern();
-        if re.is_match(&existing) {
-            re.replace(&existing, format!("\n{}\n", ai_wrapped))
-                .trim()
-                .to_string()
-        } else {
-            format!("{}\n\n{}", existing.trim(), ai_wrapped)
-        }
-    } else {
-        ai_wrapped
-    };
+    let final_description = build_final_description(
+        &analysis,
+        data_access,
+        ctx.preserve_human,
+        existing_description,
+    )
+    .await?;
 
     data_access
         .update_description(&analysis.asset_id, &final_description)
@@ -388,72 +369,16 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
                 "-".repeat(80)
             ),
         ),
-        _ => {
-            let error_message = format_error_message(error, filename);
-            (
-                "failed",
-                format!(
-                    "{} [{}] {}\n{}",
-                    rust_i18n::t!("status.error"),
-                    filename,
-                    error_message,
-                    "-".repeat(80)
-                ),
-            )
-        }
-    }
-}
-
-fn format_error_message(error: &ImageAnalysisError, filename: &str) -> String {
-    match error {
-        ImageAnalysisError::EmptyFile { filename } => {
-            rust_i18n::t!("error.empty_file", filename = filename).to_string()
-        }
-        ImageAnalysisError::HttpError {
-            filename,
-            status,
-            response,
-        } => rust_i18n::t!(
-            "error.http_error_with_details",
-            filename = filename,
-            status = status.to_string(),
-            response = response
-        )
-        .to_string(),
-        ImageAnalysisError::EmptyResponse { filename } => {
-            rust_i18n::t!("error.empty_response", filename = filename).to_string()
-        }
-        ImageAnalysisError::JsonParsing { filename, error } => rust_i18n::t!(
-            "error.json_parsing_with_details",
-            filename = filename,
-            error = error
-        )
-        .to_string(),
-        ImageAnalysisError::FileWriteTimeout { filename, timeout } => rust_i18n::t!(
-            "error.file_write_timeout_with_details",
-            filename = filename,
-            timeout = timeout.to_string()
-        )
-        .to_string(),
-        ImageAnalysisError::DatabaseError { error } => {
-            rust_i18n::t!("error.database_error", error = error).to_string()
-        }
-        ImageAnalysisError::AllHostsUnavailable => {
-            rust_i18n::t!("error.all_hosts_unavailable").to_string()
-        }
-        ImageAnalysisError::OllamaRequestTimeout => {
-            rust_i18n::t!("error.ollama_request_timeout").to_string()
-        }
-        ImageAnalysisError::LlamaCppRequestTimeout => {
-            rust_i18n::t!("error.llamacpp_request_timeout").to_string()
-        }
-        e => {
+        _ => (
+            "failed",
             format!(
-                "{}\n{}",
-                rust_i18n::t!("error.critical_processing_error", filename = filename),
-                e
-            )
-        }
+                "{} [{}] {}\n{}",
+                rust_i18n::t!("status.error"),
+                filename,
+                error.user_message(),
+                "-".repeat(80)
+            ),
+        ),
     }
 }
 

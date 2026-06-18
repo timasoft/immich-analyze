@@ -7,9 +7,12 @@ use crate::{
     llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
     ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     prompt_enricher::enrich_prompt_if_needed,
-    utils::{extract_uuid_from_preview_filename, get_ai_block_pattern},
+    utils::{
+        build_final_description, extract_uuid_from_preview_filename, get_ai_block_pattern,
+        is_preview_filename,
+    },
 };
-use log::{error, warn};
+use log::error;
 use notify::{
     event::ModifyKind,
     {Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher},
@@ -155,34 +158,13 @@ pub async fn process_new_file(
                 rust_i18n::t!("monitor.processing_success", filename = filename)
             );
 
-            let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
-            let final_description = if ctx.preserve_human {
-                let existing = match existing_description {
-                    Some(desc) => desc,
-                    None => match data_access.get_description(&analysis.asset_id).await {
-                        Ok(Some(desc)) => desc,
-                        Ok(None) => ai_wrapped.clone(),
-                        Err(e) => {
-                            warn!(
-                                "Failed to get existing description for asset {}, cannot preserve human text: {}",
-                                analysis.asset_id, e
-                            );
-                            return Err(e);
-                        }
-                    },
-                };
-
-                let re = get_ai_block_pattern();
-                if re.is_match(&existing) {
-                    re.replace(&existing, format!("\n{}\n", ai_wrapped))
-                        .trim()
-                        .to_string()
-                } else {
-                    format!("{}\n\n{}", existing.trim(), ai_wrapped)
-                }
-            } else {
-                ai_wrapped
-            };
+            let final_description = build_final_description(
+                &analysis,
+                data_access,
+                ctx.preserve_human,
+                existing_description,
+            )
+            .await?;
 
             data_access
                 .update_description(&analysis.asset_id, &final_description)
@@ -194,7 +176,7 @@ pub async fn process_new_file(
             Ok(())
         }
         Err(e) => {
-            crate::utils::handle_processing_error(&e, &filename);
+            eprintln!("{}", e.user_message());
             Err(e)
         }
     }
@@ -393,7 +375,7 @@ async fn handle_fs_events(
                         && let Some(filename) = path.file_name().and_then(|n| n.to_str())
                     {
                         let filename = filename.to_string();
-                        if !filename.contains("_preview.") && !filename.contains("-preview.") {
+                        if !is_preview_filename(&filename) {
                             continue;
                         }
 
