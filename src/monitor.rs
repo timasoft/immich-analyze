@@ -3,6 +3,7 @@ use crate::{
     config::{FileProcessingConfig, MonitorConfig},
     data_access::DataAccess,
     error::ImageAnalysisError,
+    immich_api::ImmichApiProvider,
     llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
     ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     prompt_enricher::enrich_prompt_if_needed,
@@ -163,8 +164,7 @@ pub async fn process_new_file(
                         Err(e) => {
                             warn!(
                                 "Failed to get existing description for asset {}, cannot preserve human text: {}",
-                                analysis.asset_id,
-                                e
+                                analysis.asset_id, e
                             );
                             return Err(e);
                         }
@@ -260,6 +260,15 @@ pub async fn monitor_folder(
             None
         };
 
+    let bg_ctx = BackgroundCtx {
+        http_client,
+        data_access: data_access.clone(),
+        model_name: model_name.to_string(),
+        prompt: prompt.to_string(),
+        ollama_manager,
+        llamacpp_manager,
+    };
+
     match &data_access {
         // ========== DATABASE MODE: filesystem monitoring ==========
         DataAccess::Database { immich_root, .. } => {
@@ -304,117 +313,14 @@ pub async fn monitor_folder(
                         return Ok(());
                     }
                     _ = interval.tick() => {
-                        while let Ok(event) = event_rx.try_recv() {
-                            match event {
-                                Ok(event) => {
-                                    if let EventKind::Create(_) | EventKind::Modify(ModifyKind::Data(_)) = event.kind
-                                        && let Some(path) = event.paths.first()
-                                    {
-                                        let path = path.as_path();
-                                        if path.is_file()
-                                            && let Some(filename) = path.file_name().and_then(|n| n.to_str())
-                                        {
-                                            let filename = filename.to_string();
-                                            if !filename.contains("_preview.") && !filename.contains("-preview.") {
-                                                continue;
-                                            }
-
-                                            let now = Instant::now();
-                                            let cooldown_duration = Duration::from_secs(config.event_cooldown);
-                                            if let Some(last_time) = last_events.get(&filename)
-                                                && now.duration_since(*last_time) < cooldown_duration
-                                            {
-                                                println!("{}", rust_i18n::t!("monitor.skipping_duplicate_event",
-                                                    filename = filename,
-                                                    cooldown = config.event_cooldown.to_string()
-                                                ));
-                                                continue;
-                                            }
-                                            last_events.insert(filename.clone(), now);
-
-                                            {
-                                                let files = processing_files.lock().expect("Failed to lock processing files");
-                                                if files.contains(&filename) {
-                                                    println!("{}", rust_i18n::t!("monitor.file_already_processing", filename = filename));
-                                                    continue;
-                                                }
-                                            }
-
-                                            println!("{}", rust_i18n::t!("monitor.file_queued", filename = filename));
-                                            {
-                                                let mut files = processing_files.lock().expect("Failed to lock processing files");
-                                                files.insert(filename.clone());
-                                            }
-
-                                            let http_client_clone = http_client.clone();
-                                            let data_access_clone = data_access.clone();
-                                            let model_name_clone = model_name.to_string();
-                                            let path_clone = path.to_path_buf();
-                                            let filename_clone = filename.clone();
-                                            let processing_files_clone = Arc::clone(&processing_files);
-                                            let prompt_clone = prompt.to_string();
-                                            let ollama_manager_clone = ollama_manager.clone();
-                                            let llamacpp_manager_clone = llamacpp_manager.clone();
-                                            let config_clone = config.clone();
-
-                                            let file_processing_config = FileProcessingConfig {
-                                                file_write_timeout: config.file_write_timeout,
-                                                file_check_interval: config.file_check_interval,
-                                                overwrite_policy: config.overwrite_policy,
-                                                request_timeout: config.timeout,
-                                                max_retries: config.max_retries,
-                                                retry_delay_seconds: config.retry_delay_seconds,
-                                                preserve_human: config.preserve_human,
-                                            };
-
-                                            tokio::spawn(async move {
-                                                rust_i18n::set_locale(&config_clone.lang);
-                                                let ctx = crate::config::ProcessingContext {
-                                                    http_client: &http_client_clone,
-                                                    data_access: &data_access_clone,
-                                                    model_name: &model_name_clone,
-                                                    prompt: &prompt_clone,
-                                                    timeout: file_processing_config.request_timeout,
-                                                    ollama_manager: ollama_manager_clone.as_ref(),
-                                                    llamacpp_manager: llamacpp_manager_clone.as_ref(),
-                                                    overwrite_policy: file_processing_config.overwrite_policy,
-                                                    max_retries: file_processing_config.max_retries,
-                                                    retry_delay: Duration::from_secs(file_processing_config.retry_delay_seconds),
-                                                    enrich_prompt: config_clone.enrich_prompt,
-                                                    preserve_human: config_clone.preserve_human,
-                                                };
-                                                let result = process_new_file(
-                                                    &ctx,
-                                                    &path_clone,
-                                                    &file_processing_config,
-                                                )
-                                                .await;
-                                                {
-                                                    let mut files = processing_files_clone.lock().expect("Failed to lock processing files");
-                                                    files.remove(&filename_clone);
-                                                }
-                                                if let Err(e) = result {
-                                                    if let ImageAnalysisError::AlreadyProcessed { filename: _ } = e {
-                                                        // Expected when ignoring existing files
-                                                    } else {
-                                                        error!(
-                                                            "{}",
-                                                            rust_i18n::t!("error.background_processing_error", filename = filename_clone)
-                                                        );
-                                                    }
-                                                }
-                                            });
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "{}",
-                                        rust_i18n::t!("error.filesystem_monitoring_error_details", error = e.to_string())
-                                    );
-                                }
-                            }
-                        }
+                        handle_fs_events(
+                            &event_rx,
+                            &mut last_events,
+                            &processing_files,
+                            config,
+                            &bg_ctx,
+                        )
+                        .await;
                     }
                 }
             }
@@ -441,141 +347,315 @@ pub async fn monitor_folder(
                         return Ok(());
                     }
                     _ = poll_interval.tick() => {
-                        let assets_result = if is_first_poll {
-                            provider.get_assets().await
-                        } else {
-                            let buffer_secs = config.api_poll_interval * 2;
-                            let since_time = last_poll_time
-                                .unwrap_or_else(chrono::Utc::now)
-                                .checked_sub_signed(chrono::Duration::seconds(buffer_secs as i64))
-                                .unwrap_or_else(chrono::Utc::now);
-                            let since_iso = since_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-                            provider.get_assets_since_timestamp(&since_iso).await
-                        };
-
-                        match assets_result {
-                            Ok(assets) => {
-                                if is_first_poll {
-                                    for asset in &assets {
-                                        known_assets.insert(asset.id);
-                                    }
-                                    is_first_poll = false;
-                                    last_poll_time = Some(chrono::Utc::now());
-                                    log::info!(
-                                        "Initial sync complete: {} assets indexed, none processed",
-                                        assets.len()
-                                    );
-                                } else {
-                                    for asset in assets {
-                                        if known_assets.contains(&asset.id) {
-                                            continue;
-                                        }
-                                        {
-                                            let processing = processing_assets.lock()
-                                                .expect("Failed to lock processing assets");
-                                            if processing.contains(&asset.id) {
-                                                continue;
-                                            }
-                                        }
-
-                                        known_assets.insert(asset.id);
-                                        {
-                                            let mut processing = processing_assets.lock()
-                                                .expect("Failed to lock processing assets");
-                                            processing.insert(asset.id);
-                                        }
-
-                                        println!("{}", rust_i18n::t!("monitor.api_asset_queued", asset_id = asset.id.to_string()));
-
-                                        let http_client_clone = http_client.clone();
-                                        let data_access_clone = data_access.clone();
-                                        let model_name_clone = model_name.to_string();
-                                        let asset_id = asset.id;
-                                        let processing_assets_clone = Arc::clone(&processing_assets);
-                                        let prompt_clone = prompt.to_string();
-                                        let ollama_manager_clone = ollama_manager.clone();
-                                        let llamacpp_manager_clone = llamacpp_manager.clone();
-                                        let config_clone = config.clone();
-
-                                        tokio::spawn(async move {
-                                            rust_i18n::set_locale(&config_clone.lang);
-
-                                            let preview_path = match data_access_clone.get_preview_path(&asset_id).await {
-                                                Ok(path) => path,
-                                                Err(e) => {
-                                                    error!("Failed to get preview for asset {}: {}", asset_id, e);
-                                                    let mut processing = processing_assets_clone.lock()
-                                                        .expect("Failed to lock processing assets");
-                                                    processing.remove(&asset_id);
-                                                    return;
-                                                }
-                                            };
-
-                                            let ctx = crate::config::ProcessingContext {
-                                                http_client: &http_client_clone,
-                                                data_access: &data_access_clone,
-                                                model_name: &model_name_clone,
-                                                prompt: &prompt_clone,
-                                                timeout: config_clone.timeout,
-                                                ollama_manager: ollama_manager_clone.as_ref(),
-                                                llamacpp_manager: llamacpp_manager_clone.as_ref(),
-                                                overwrite_policy: config_clone.overwrite_policy,
-                                                max_retries: config_clone.max_retries,
-                                                retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
-                                                enrich_prompt: config_clone.enrich_prompt,
-                                                preserve_human: config_clone.preserve_human,
-                                            };
-
-                                            let file_processing_config = FileProcessingConfig {
-                                                file_write_timeout: config_clone.file_write_timeout,
-                                                file_check_interval: config_clone.file_check_interval,
-                                                overwrite_policy: config_clone.overwrite_policy,
-                                                request_timeout: config_clone.timeout,
-                                                max_retries: config_clone.max_retries,
-                                                retry_delay_seconds: config_clone.retry_delay_seconds,
-                                                preserve_human: config_clone.preserve_human,
-                                            };
-
-                                            let result = process_new_file(
-                                                &ctx,
-                                                &preview_path,
-                                                &file_processing_config,
-                                            )
-                                            .await;
-
-                                            let _ = data_access_clone.cleanup_preview(&preview_path).await;
-
-                                            {
-                                                let mut processing = processing_assets_clone.lock()
-                                                    .expect("Failed to lock processing assets");
-                                                processing.remove(&asset_id);
-                                            }
-
-                                            if let Err(e) = result {
-                                                if let ImageAnalysisError::AlreadyProcessed { .. } = e {
-                                                    // Expected when ignoring existing files
-                                                } else {
-                                                    error!(
-                                                        "{}",
-                                                        rust_i18n::t!("error.background_processing_error", filename = asset_id.to_string())
-                                                    );
-                                                }
-                                            }
-                                        });
-                                    }
-                                    last_poll_time = Some(chrono::Utc::now());
-                                }
-                            }
-                            Err(e) => {
-                                error!(
-                                    "{}",
-                                    rust_i18n::t!("error.api_polling_failed", error = e.to_string())
-                                );
-                            }
-                        }
+                        handle_api_poll(
+                            provider,
+                            &mut known_assets,
+                            &processing_assets,
+                            &mut is_first_poll,
+                            &mut last_poll_time,
+                            config,
+                            &bg_ctx,
+                        )
+                        .await;
                     }
                 }
             }
+        }
+    }
+}
+
+#[derive(Clone)]
+struct BackgroundCtx {
+    http_client: Client,
+    data_access: DataAccess,
+    model_name: String,
+    prompt: String,
+    ollama_manager: Option<Arc<OllamaHostManager>>,
+    llamacpp_manager: Option<Arc<LlamaCppHostManager>>,
+}
+
+async fn handle_fs_events(
+    event_rx: &Receiver<notify::Result<notify::Event>>,
+    last_events: &mut HashMap<String, Instant>,
+    processing_files: &Arc<Mutex<HashSet<String>>>,
+    config: &MonitorConfig,
+    bg_ctx: &BackgroundCtx,
+) {
+    while let Ok(event) = event_rx.try_recv() {
+        match event {
+            Ok(event) => {
+                if let EventKind::Create(_) | EventKind::Modify(ModifyKind::Data(_)) = event.kind
+                    && let Some(path) = event.paths.first()
+                {
+                    let path = path.as_path();
+                    if path.is_file()
+                        && let Some(filename) = path.file_name().and_then(|n| n.to_str())
+                    {
+                        let filename = filename.to_string();
+                        if !filename.contains("_preview.") && !filename.contains("-preview.") {
+                            continue;
+                        }
+
+                        let now = Instant::now();
+                        let cooldown_duration = Duration::from_secs(config.event_cooldown);
+                        if let Some(last_time) = last_events.get(&filename)
+                            && now.duration_since(*last_time) < cooldown_duration
+                        {
+                            println!(
+                                "{}",
+                                rust_i18n::t!(
+                                    "monitor.skipping_duplicate_event",
+                                    filename = filename,
+                                    cooldown = config.event_cooldown.to_string()
+                                )
+                            );
+                            continue;
+                        }
+                        last_events.insert(filename.clone(), now);
+
+                        {
+                            let files = processing_files
+                                .lock()
+                                .expect("Failed to lock processing files");
+                            if files.contains(&filename) {
+                                println!(
+                                    "{}",
+                                    rust_i18n::t!(
+                                        "monitor.file_already_processing",
+                                        filename = filename
+                                    )
+                                );
+                                continue;
+                            }
+                        }
+
+                        println!(
+                            "{}",
+                            rust_i18n::t!("monitor.file_queued", filename = filename)
+                        );
+                        {
+                            let mut files = processing_files
+                                .lock()
+                                .expect("Failed to lock processing files");
+                            files.insert(filename.clone());
+                        }
+
+                        let bg_ctx_clone = bg_ctx.clone();
+                        let path_clone = path.to_path_buf();
+                        let filename_clone = filename.clone();
+                        let processing_files_clone = Arc::clone(processing_files);
+                        let config_clone = config.clone();
+
+                        let file_processing_config = FileProcessingConfig {
+                            file_write_timeout: config.file_write_timeout,
+                            file_check_interval: config.file_check_interval,
+                            overwrite_policy: config.overwrite_policy,
+                            request_timeout: config.timeout,
+                            max_retries: config.max_retries,
+                            retry_delay_seconds: config.retry_delay_seconds,
+                            preserve_human: config.preserve_human,
+                        };
+
+                        tokio::spawn(async move {
+                            rust_i18n::set_locale(&config_clone.lang);
+                            let ctx = crate::config::ProcessingContext {
+                                http_client: &bg_ctx_clone.http_client,
+                                data_access: &bg_ctx_clone.data_access,
+                                model_name: &bg_ctx_clone.model_name,
+                                prompt: &bg_ctx_clone.prompt,
+                                timeout: file_processing_config.request_timeout,
+                                ollama_manager: bg_ctx_clone.ollama_manager.as_ref(),
+                                llamacpp_manager: bg_ctx_clone.llamacpp_manager.as_ref(),
+                                overwrite_policy: file_processing_config.overwrite_policy,
+                                max_retries: file_processing_config.max_retries,
+                                retry_delay: Duration::from_secs(
+                                    file_processing_config.retry_delay_seconds,
+                                ),
+                                enrich_prompt: config_clone.enrich_prompt,
+                                preserve_human: config_clone.preserve_human,
+                            };
+                            let result =
+                                process_new_file(&ctx, &path_clone, &file_processing_config).await;
+                            {
+                                let mut files = processing_files_clone
+                                    .lock()
+                                    .expect("Failed to lock processing files");
+                                files.remove(&filename_clone);
+                            }
+                            if let Err(e) = result {
+                                if let ImageAnalysisError::AlreadyProcessed { filename: _ } = e {
+                                    // Expected when ignoring existing files
+                                } else {
+                                    error!(
+                                        "{}",
+                                        rust_i18n::t!(
+                                            "error.background_processing_error",
+                                            filename = filename_clone
+                                        )
+                                    );
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                error!(
+                    "{}",
+                    rust_i18n::t!(
+                        "error.filesystem_monitoring_error_details",
+                        error = e.to_string()
+                    )
+                );
+            }
+        }
+    }
+}
+
+async fn handle_api_poll(
+    provider: &ImmichApiProvider,
+    known_assets: &mut HashSet<Uuid>,
+    processing_assets: &Arc<Mutex<HashSet<Uuid>>>,
+    is_first_poll: &mut bool,
+    last_poll_time: &mut Option<chrono::DateTime<chrono::Utc>>,
+    config: &MonitorConfig,
+    bg_ctx: &BackgroundCtx,
+) {
+    let assets_result = if *is_first_poll {
+        provider.get_assets().await
+    } else {
+        let buffer_secs = config.api_poll_interval * 2;
+        let since_time = last_poll_time
+            .unwrap_or_else(chrono::Utc::now)
+            .checked_sub_signed(chrono::Duration::seconds(buffer_secs as i64))
+            .unwrap_or_else(chrono::Utc::now);
+        let since_iso = since_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        provider.get_assets_since_timestamp(&since_iso).await
+    };
+
+    match assets_result {
+        Ok(assets) => {
+            if *is_first_poll {
+                for asset in &assets {
+                    known_assets.insert(asset.id);
+                }
+                *is_first_poll = false;
+                *last_poll_time = Some(chrono::Utc::now());
+                log::info!(
+                    "Initial sync complete: {} assets indexed, none processed",
+                    assets.len()
+                );
+            } else {
+                for asset in assets {
+                    if known_assets.contains(&asset.id) {
+                        continue;
+                    }
+                    {
+                        let processing = processing_assets
+                            .lock()
+                            .expect("Failed to lock processing assets");
+                        if processing.contains(&asset.id) {
+                            continue;
+                        }
+                    }
+
+                    known_assets.insert(asset.id);
+                    {
+                        let mut processing = processing_assets
+                            .lock()
+                            .expect("Failed to lock processing assets");
+                        processing.insert(asset.id);
+                    }
+
+                    println!(
+                        "{}",
+                        rust_i18n::t!("monitor.api_asset_queued", asset_id = asset.id.to_string())
+                    );
+
+                    let bg_ctx_clone = bg_ctx.clone();
+                    let asset_id = asset.id;
+                    let processing_assets_clone = Arc::clone(processing_assets);
+                    let config_clone = config.clone();
+
+                    tokio::spawn(async move {
+                        rust_i18n::set_locale(&config_clone.lang);
+
+                        let preview_path =
+                            match bg_ctx_clone.data_access.get_preview_path(&asset_id).await {
+                                Ok(path) => path,
+                                Err(e) => {
+                                    error!("Failed to get preview for asset {}: {}", asset_id, e);
+                                    let mut processing = processing_assets_clone
+                                        .lock()
+                                        .expect("Failed to lock processing assets");
+                                    processing.remove(&asset_id);
+                                    return;
+                                }
+                            };
+
+                        let ctx = crate::config::ProcessingContext {
+                            http_client: &bg_ctx_clone.http_client,
+                            data_access: &bg_ctx_clone.data_access,
+                            model_name: &bg_ctx_clone.model_name,
+                            prompt: &bg_ctx_clone.prompt,
+                            timeout: config_clone.timeout,
+                            ollama_manager: bg_ctx_clone.ollama_manager.as_ref(),
+                            llamacpp_manager: bg_ctx_clone.llamacpp_manager.as_ref(),
+                            overwrite_policy: config_clone.overwrite_policy,
+                            max_retries: config_clone.max_retries,
+                            retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
+                            enrich_prompt: config_clone.enrich_prompt,
+                            preserve_human: config_clone.preserve_human,
+                        };
+
+                        let file_processing_config = FileProcessingConfig {
+                            file_write_timeout: config_clone.file_write_timeout,
+                            file_check_interval: config_clone.file_check_interval,
+                            overwrite_policy: config_clone.overwrite_policy,
+                            request_timeout: config_clone.timeout,
+                            max_retries: config_clone.max_retries,
+                            retry_delay_seconds: config_clone.retry_delay_seconds,
+                            preserve_human: config_clone.preserve_human,
+                        };
+
+                        let result =
+                            process_new_file(&ctx, &preview_path, &file_processing_config).await;
+
+                        let _ = bg_ctx_clone
+                            .data_access
+                            .cleanup_preview(&preview_path)
+                            .await;
+
+                        {
+                            let mut processing = processing_assets_clone
+                                .lock()
+                                .expect("Failed to lock processing assets");
+                            processing.remove(&asset_id);
+                        }
+
+                        if let Err(e) = result {
+                            if let ImageAnalysisError::AlreadyProcessed { .. } = e {
+                                // Expected when ignoring existing files
+                            } else {
+                                error!(
+                                    "{}",
+                                    rust_i18n::t!(
+                                        "error.background_processing_error",
+                                        filename = asset_id.to_string()
+                                    )
+                                );
+                            }
+                        }
+                    });
+                }
+                *last_poll_time = Some(chrono::Utc::now());
+            }
+        }
+        Err(e) => {
+            error!(
+                "{}",
+                rust_i18n::t!("error.api_polling_failed", error = e.to_string())
+            );
         }
     }
 }
