@@ -1,11 +1,10 @@
 use crate::{
-    args::{Interface, OverwritePolicy},
+    args::OverwritePolicy,
     config::{MonitorConfig, ProcessingContext},
     data_access::DataAccess,
     error::ImageAnalysisError,
+    host_manager::HostManager,
     immich_api::ImmichApiProvider,
-    llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
-    ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
         build_final_description, extract_uuid_from_preview_filename, get_ai_block_pattern,
@@ -41,11 +40,7 @@ pub async fn process_new_file(
     file_write_timeout: u64,
     file_check_interval: u64,
 ) -> Result<(), ImageAnalysisError> {
-    let http_client = ctx.http_client;
     let data_access = ctx.data_access;
-    let model_name = ctx.model_name;
-    let ollama_manager = ctx.ollama_manager;
-    let llamacpp_manager = ctx.llamacpp_manager;
 
     let filename = preview_path
         .file_name()
@@ -121,35 +116,10 @@ pub async fn process_new_file(
         .await
         .unwrap_or_else(|| ctx.prompt.to_string());
 
-    let result = match (ollama_manager, llamacpp_manager) {
-        (Some(manager), _) => {
-            ollama_analyze_image(
-                http_client,
-                preview_path,
-                model_name,
-                &final_prompt,
-                ctx.timeout,
-                manager,
-                ctx.max_retries,
-                ctx.retry_delay,
-            )
-            .await
-        }
-        (_, Some(manager)) => {
-            llamacpp_analyze_image(
-                http_client,
-                preview_path,
-                model_name,
-                &final_prompt,
-                ctx.timeout,
-                manager,
-                ctx.max_retries,
-                ctx.retry_delay,
-            )
-            .await
-        }
-        (None, None) => Err(ImageAnalysisError::AllHostsUnavailable),
-    };
+    let result = ctx
+        .host_manager
+        .analyze_image(preview_path, &final_prompt)
+        .await;
 
     match result {
         Ok(analysis) => {
@@ -224,32 +194,22 @@ pub async fn monitor_folder(
     });
 
     let unavailable_duration = Duration::from_secs(config.unavailable_duration);
-    let ollama_manager: Option<Arc<OllamaHostManager>> = if config.interface == Interface::Ollama {
-        Some(Arc::new(OllamaHostManager::new(
-            config.hosts.clone(),
-            unavailable_duration,
-        )))
-    } else {
-        None
-    };
-    let llamacpp_manager: Option<Arc<LlamaCppHostManager>> =
-        if config.interface == Interface::Llamacpp {
-            Some(Arc::new(LlamaCppHostManager::new(
-                config.hosts.clone(),
-                config.api_key.clone(),
-                unavailable_duration,
-            )))
-        } else {
-            None
-        };
+    let host_manager = Arc::new(HostManager::new(
+        config.hosts.clone(),
+        config.interface,
+        http_client.clone(),
+        model_name.to_string(),
+        config.timeout,
+        config.max_retries,
+        Duration::from_secs(config.retry_delay_seconds),
+        unavailable_duration,
+        config.api_key.clone(),
+    ));
 
     let bg_ctx = BackgroundCtx {
-        http_client,
         data_access: data_access.clone(),
-        model_name: model_name.to_string(),
         prompt: prompt.to_string(),
-        ollama_manager,
-        llamacpp_manager,
+        host_manager,
     };
 
     match &data_access {
@@ -349,12 +309,9 @@ pub async fn monitor_folder(
 
 #[derive(Clone)]
 struct BackgroundCtx {
-    http_client: Client,
     data_access: DataAccess,
-    model_name: String,
     prompt: String,
-    ollama_manager: Option<Arc<OllamaHostManager>>,
-    llamacpp_manager: Option<Arc<LlamaCppHostManager>>,
+    host_manager: Arc<HostManager>,
 }
 
 async fn handle_fs_events(
@@ -432,16 +389,10 @@ async fn handle_fs_events(
                         tokio::spawn(async move {
                             rust_i18n::set_locale(&config_clone.lang);
                             let ctx = ProcessingContext {
-                                http_client: &bg_ctx_clone.http_client,
                                 data_access: &bg_ctx_clone.data_access,
-                                model_name: &bg_ctx_clone.model_name,
                                 prompt: &bg_ctx_clone.prompt,
-                                timeout: config_clone.timeout,
-                                ollama_manager: bg_ctx_clone.ollama_manager.as_ref(),
-                                llamacpp_manager: bg_ctx_clone.llamacpp_manager.as_ref(),
+                                host_manager: &bg_ctx_clone.host_manager,
                                 overwrite_policy: config_clone.overwrite_policy,
-                                max_retries: config_clone.max_retries,
-                                retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
                                 enrich_prompt: config_clone.enrich_prompt,
                                 preserve_human: config_clone.preserve_human,
                             };
@@ -570,16 +521,10 @@ async fn handle_api_poll(
                             };
 
                         let ctx = ProcessingContext {
-                            http_client: &bg_ctx_clone.http_client,
                             data_access: &bg_ctx_clone.data_access,
-                            model_name: &bg_ctx_clone.model_name,
                             prompt: &bg_ctx_clone.prompt,
-                            timeout: config_clone.timeout,
-                            ollama_manager: bg_ctx_clone.ollama_manager.as_ref(),
-                            llamacpp_manager: bg_ctx_clone.llamacpp_manager.as_ref(),
+                            host_manager: &bg_ctx_clone.host_manager,
                             overwrite_policy: config_clone.overwrite_policy,
-                            max_retries: config_clone.max_retries,
-                            retry_delay: Duration::from_secs(config_clone.retry_delay_seconds),
                             enrich_prompt: config_clone.enrich_prompt,
                             preserve_human: config_clone.preserve_human,
                         };

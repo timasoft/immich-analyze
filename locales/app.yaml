@@ -289,13 +289,10 @@ database.connection_success:
   en: " Database connection test passed"
   ru: " Проверка подключения к базе данных пройдена"
 
-# Ollama messages
-ollama.host_marked_unavailable:
+# Host manager messages
+host_manager.host_marked_unavailable:
   en: " %{host} marked as temporarily unavailable"
   ru: " %{host} помечен как временно недоступный"
-ollama.host_url_updated:
-  en: " Ollama host URL updated to: %{url}"
-  ru: " URL Ollama сервера обновлен на: %{url}"
 
 # Error messages
 error.empty_file:
@@ -397,15 +394,9 @@ error.batch_mode_failed:
 error.all_hosts_unavailable:
   en: " All servers are unavailable. Cannot process image."
   ru: " Все серверы недоступны. Невозможно обработать изображение."
-error.ollama_request_timeout:
-  en: " Ollama request timed out after 60 seconds"
-  ru: " Таймаут запроса к Ollama превысил 60 секунд"
-error.llamacpp_request_timeout:
-  en: " LLaMa.cpp request timed out after 60 seconds"
-  ru: " Таймаут запроса к LLaMa.cpp превысил 60 секунд"
-error.ollama_host_marked_unavailable:
-  en: " Ollama host marked as temporarily unavailable: %{host}"
-  ru: " Ollama сервер помечен как временно недоступный: %{host}"
+error.ai_request_timeout:
+  en: " AI service request timed out after 60 seconds"
+  ru: " Таймаут запроса к ИИ сервису превысил 60 секунд"
 error.api_polling_failed:
   en: " API polling failed: %{error}"
   ru: " Опрос API не удался: %{error}"

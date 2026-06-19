@@ -28,10 +28,8 @@ pub enum ImageAnalysisError {
     InvalidImmichStructure { error: String },
     #[error("All AI service hosts are unavailable")]
     AllHostsUnavailable,
-    #[error("Ollama request timeout")]
-    OllamaRequestTimeout,
-    #[error("Llama.cpp request timeout")]
-    LlamaCppRequestTimeout,
+    #[error("AI service request timeout")]
+    AiRequestTimeout,
     #[error("Invalid API key")]
     InvalidApiKey,
     #[error("Invalid configuration: {error}")]
@@ -80,11 +78,8 @@ impl ImageAnalysisError {
             ImageAnalysisError::AllHostsUnavailable => {
                 rust_i18n::t!("error.all_hosts_unavailable").to_string()
             }
-            ImageAnalysisError::OllamaRequestTimeout => {
-                rust_i18n::t!("error.ollama_request_timeout").to_string()
-            }
-            ImageAnalysisError::LlamaCppRequestTimeout => {
-                rust_i18n::t!("error.llamacpp_request_timeout").to_string()
+            ImageAnalysisError::AiRequestTimeout => {
+                rust_i18n::t!("error.ai_request_timeout").to_string()
             }
             ImageAnalysisError::ProcessingError { filename, error } => format!(
                 "{}\n{}",
@@ -131,8 +126,7 @@ impl ImageAnalysisError {
                 *status == 0 || (*status >= 500 && *status <= 599) || *status == 429
             }
             ImageAnalysisError::AllHostsUnavailable => true,
-            ImageAnalysisError::OllamaRequestTimeout => true,
-            ImageAnalysisError::LlamaCppRequestTimeout => true,
+            ImageAnalysisError::AiRequestTimeout => true,
             ImageAnalysisError::HttpClientError { .. } => true,
 
             // Non-retryable errors

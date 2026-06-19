@@ -1,12 +1,11 @@
 use crate::{
-    args::{Interface, OverwritePolicy},
+    args::OverwritePolicy,
     config::ProcessingContext,
     data_access::DataAccess,
     database::ImageAnalysisResult,
     error::ImageAnalysisError,
+    host_manager::HostManager,
     immich_api::AssetRef,
-    llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
-    ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     progress::SimpleProgress,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
@@ -119,12 +118,7 @@ async fn process_file(
     path: &Path,
     existing_description: Option<String>,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
-    let http_client = ctx.http_client;
     let data_access = ctx.data_access;
-    let model_name = ctx.model_name;
-    let ollama_manager = ctx.ollama_manager;
-    let llamacpp_manager = ctx.llamacpp_manager;
-    let timeout = ctx.timeout;
 
     let filename = path
         .file_name()
@@ -139,35 +133,10 @@ async fn process_file(
         .await
         .unwrap_or_else(|| ctx.prompt.to_string());
 
-    let analysis = match (ollama_manager, llamacpp_manager) {
-        (Some(manager), _) => {
-            ollama_analyze_image(
-                http_client,
-                &preview_path,
-                model_name,
-                &final_prompt,
-                timeout,
-                manager,
-                ctx.max_retries,
-                ctx.retry_delay,
-            )
-            .await?
-        }
-        (_, Some(manager)) => {
-            llamacpp_analyze_image(
-                http_client,
-                &preview_path,
-                model_name,
-                &final_prompt,
-                timeout,
-                manager,
-                ctx.max_retries,
-                ctx.retry_delay,
-            )
-            .await?
-        }
-        (None, None) => return Err(ImageAnalysisError::AllHostsUnavailable),
-    };
+    let analysis = ctx
+        .host_manager
+        .analyze_image(&preview_path, &final_prompt)
+        .await?;
 
     let _ = data_access.cleanup_preview(&preview_path).await;
 
@@ -194,41 +163,29 @@ pub async fn process_files_concurrently(
     locale: &str,
     progress: Arc<Mutex<SimpleProgress>>,
 ) -> Vec<(String, Result<ImageAnalysisResult, ImageAnalysisError>)> {
-    // Create host managers once for all files to preserve unavailable host state
+    // Create host manager once for all files to preserve unavailable host state
     let unavailable_duration = Duration::from_secs(args.unavailable_duration);
 
-    let ollama_manager: Option<Arc<OllamaHostManager>> = if args.interface == Interface::Ollama {
-        Some(Arc::new(OllamaHostManager::new(
-            args.hosts.clone(),
-            unavailable_duration,
-        )))
-    } else {
-        None
-    };
-
-    let llamacpp_manager: Option<Arc<LlamaCppHostManager>> =
-        if args.interface == Interface::Llamacpp {
-            Some(Arc::new(LlamaCppHostManager::new(
-                args.hosts.clone(),
-                args.api_key.clone(),
-                unavailable_duration,
-            )))
-        } else {
-            None
-        };
+    let host_manager = Arc::new(HostManager::new(
+        args.hosts.clone(),
+        args.interface,
+        http_client.clone(),
+        args.model_name.clone(),
+        args.timeout,
+        NonZeroU32::new(args.max_retries),
+        Duration::from_secs(args.retry_delay_seconds),
+        unavailable_duration,
+        args.api_key.clone(),
+    ));
 
     stream::iter(assets.into_iter().map(|asset| {
-        let http_client = http_client.clone();
         let data_access = data_access.clone();
-        let model_name = args.model_name.clone();
         let prompt = args.prompt.clone();
         let progress = Arc::clone(&progress);
         let lang = locale.to_string();
         let overwrite_policy = args.effective_overwrite_policy();
         let asset_id = asset.id;
-        let timeout = args.timeout;
-        let ollama_manager = ollama_manager.clone();
-        let llamacpp_manager = llamacpp_manager.clone();
+        let host_manager = host_manager.clone();
 
         async move {
             rust_i18n::set_locale(&lang);
@@ -265,16 +222,10 @@ pub async fn process_files_concurrently(
             }
 
             let ctx = ProcessingContext {
-                http_client: &http_client,
                 data_access: &data_access,
-                model_name: &model_name,
                 prompt: &prompt,
-                timeout,
-                ollama_manager: ollama_manager.as_ref(),
-                llamacpp_manager: llamacpp_manager.as_ref(),
+                host_manager: &host_manager,
                 overwrite_policy,
-                max_retries: NonZeroU32::new(args.max_retries),
-                retry_delay: Duration::from_secs(args.retry_delay_seconds),
                 enrich_prompt: args.enrich_prompt,
                 preserve_human: args.preserve_human,
             };

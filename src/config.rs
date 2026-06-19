@@ -1,11 +1,9 @@
 use crate::{
     args::{Interface, OverwritePolicy},
     data_access::DataAccess,
-    llamacpp::LlamaCppHostManager,
-    ollama::OllamaHostManager,
+    host_manager::HostManager,
 };
-use reqwest::Client;
-use std::{num::NonZeroU32, sync::Arc, time::Duration};
+use std::num::NonZeroU32;
 
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {
@@ -28,16 +26,10 @@ pub struct MonitorConfig {
 
 #[derive(Clone, Copy)]
 pub struct ProcessingContext<'a> {
-    pub http_client: &'a Client,
     pub data_access: &'a DataAccess,
-    pub model_name: &'a str,
     pub prompt: &'a str,
-    pub timeout: u64,
-    pub ollama_manager: Option<&'a Arc<OllamaHostManager>>,
-    pub llamacpp_manager: Option<&'a Arc<LlamaCppHostManager>>,
+    pub host_manager: &'a HostManager,
     pub overwrite_policy: OverwritePolicy,
-    pub max_retries: Option<NonZeroU32>,
-    pub retry_delay: Duration,
     pub enrich_prompt: bool,
     pub preserve_human: bool,
 }
