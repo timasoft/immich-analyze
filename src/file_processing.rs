@@ -23,7 +23,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-/// Get all preview image files from Immich thumbs directory using std::fs.
+/// Get all preview image files from Immich thumbs directory using `std::fs`.
 ///
 /// This function is used in database mode to scan the filesystem for preview files.
 pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, ImageAnalysisError> {
@@ -168,19 +168,15 @@ pub async fn process_files_concurrently(
                 Ok(p) => p,
                 Err(e) => {
                     let filename = asset_id.to_string();
-                    {
-                        let mut progress_guard = progress.lock().await;
-                        progress_guard
-                            .set_message(&rust_i18n::t!("progress.error", filename = filename));
-                    }
+                    progress
+                        .lock()
+                        .await
+                        .set_message(&rust_i18n::t!("progress.error", filename = filename));
 
-                    {
-                        let mut progress_guard = progress.lock().await;
-                        progress_guard.set_message_and_inc(&rust_i18n::t!(
-                            "progress.error",
-                            filename = filename
-                        ));
-                    }
+                    progress
+                        .lock()
+                        .await
+                        .set_message_and_inc(&rust_i18n::t!("progress.error", filename = filename));
 
                     return (filename, Err(e));
                 }
@@ -190,11 +186,10 @@ pub async fn process_files_concurrently(
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
                 .to_string();
-            {
-                let mut progress_guard = progress.lock().await;
-                progress_guard
-                    .set_message(&rust_i18n::t!("progress.processing", filename = filename));
-            }
+            progress
+                .lock()
+                .await
+                .set_message(&rust_i18n::t!("progress.processing", filename = filename));
 
             let ctx = ProcessingContext {
                 data_access: &data_access,
@@ -206,11 +201,10 @@ pub async fn process_files_concurrently(
             };
 
             let result = process_file_with_existing_check(&ctx, &path).await;
-            {
-                let mut progress_guard = progress.lock().await;
-                progress_guard
-                    .set_message_and_inc(&rust_i18n::t!("progress.finished", filename = filename));
-            }
+            progress
+                .lock()
+                .await
+                .set_message_and_inc(&rust_i18n::t!("progress.finished", filename = filename));
             (filename, result)
         }
     }))
@@ -222,7 +216,7 @@ pub async fn process_files_concurrently(
 pub fn display_results(
     results: &[(String, Result<ImageAnalysisResult, ImageAnalysisError>)],
     use_sorting: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) {
     println!("{}", rust_i18n::t!("main.analysis_results"));
     println!("{}", "-".repeat(31));
     let mut successful = 0;
@@ -257,10 +251,9 @@ pub fn display_results(
         output_lines.sort();
     }
     for line in output_lines {
-        println!("{}", line);
+        println!("{line}");
     }
-    print_statistics(successful, failed, skipped)?;
-    Ok(())
+    print_statistics(successful, failed, skipped);
 }
 
 fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static str, String) {
@@ -308,11 +301,7 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
     }
 }
 
-fn print_statistics(
-    successful: u32,
-    failed: u32,
-    skipped: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn print_statistics(successful: u32, failed: u32, skipped: u32) {
     let total = successful + failed + skipped;
     println!("{}", rust_i18n::t!("main.statistics"));
     println!(
@@ -335,12 +324,11 @@ fn print_statistics(
     );
     println!("{}", rust_i18n::t!("main.database_updates_complete"));
     if failed > 0 {
-        print_error_recommendations()?;
+        print_error_recommendations();
     }
-    Ok(())
 }
 
-fn print_error_recommendations() -> Result<(), Box<dyn std::error::Error>> {
+fn print_error_recommendations() {
     println!("{}", rust_i18n::t!("main.error_recommendations"));
     println!("• {}", rust_i18n::t!("recommendation.check_service_status"));
     println!("• {}", rust_i18n::t!("recommendation.check_file_sizes"));
@@ -355,5 +343,4 @@ fn print_error_recommendations() -> Result<(), Box<dyn std::error::Error>> {
         rust_i18n::t!("recommendation.check_immich_structure")
     );
     println!("• {}", rust_i18n::t!("recommendation.check_ai_servers"));
-    Ok(())
 }

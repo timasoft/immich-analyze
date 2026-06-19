@@ -32,7 +32,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
-/// Process new file with stability checking using data_access abstraction.
+/// Process new file with stability checking using `data_access` abstraction.
 pub async fn process_new_file(
     ctx: &ProcessingContext<'_>,
     preview_path: &Path,
@@ -138,13 +138,13 @@ pub async fn process_new_file(
     }
 }
 
-/// Monitor for new files using data_access abstraction.
+/// Monitor for new files using `data_access` abstraction.
 ///
 /// # Database mode
 /// Uses filesystem watcher on thumbs/ directory.
 ///
-/// # ImmichApi mode
-/// Uses polling via get_assets_to_process() to detect new assets.
+/// # `ImmichApi` mode
+/// Uses polling via `get_assets_to_process()` to detect new assets.
 pub async fn monitor_folder(
     model_name: &str,
     data_access: DataAccess,
@@ -236,7 +236,7 @@ pub async fn monitor_folder(
 
             loop {
                 tokio::select! {
-                    Some(_) = stop_rx.recv() => {
+                    Some(()) = stop_rx.recv() => {
                         println!("{}", rust_i18n::t!("monitor.stopping_monitoring"));
                         drop(watcher);
                         return Ok(());
@@ -248,8 +248,7 @@ pub async fn monitor_folder(
                             &processing_files,
                             config,
                             &bg_ctx,
-                        )
-                        .await;
+                        );
                     }
                 }
             }
@@ -271,7 +270,7 @@ pub async fn monitor_folder(
 
             loop {
                 tokio::select! {
-                    Some(_) = stop_rx.recv() => {
+                    Some(()) = stop_rx.recv() => {
                         println!("{}", rust_i18n::t!("monitor.stopping_monitoring"));
                         return Ok(());
                     }
@@ -300,7 +299,7 @@ struct BackgroundCtx {
     host_manager: Arc<HostManager>,
 }
 
-async fn handle_fs_events(
+fn handle_fs_events(
     event_rx: &Receiver<notify::Result<notify::Event>>,
     last_events: &mut HashMap<String, Instant>,
     processing_files: &Arc<Mutex<HashSet<String>>>,
@@ -399,7 +398,7 @@ async fn handle_fs_events(
                                 if let ImageAnalysisError::AlreadyProcessed { filename: _ } = e {
                                     // Expected when ignoring existing files
                                 } else {
-                                    error!("Background processing error for: {}", filename_clone);
+                                    error!("Background processing error for: {filename_clone}");
                                 }
                             }
                         });
@@ -407,7 +406,7 @@ async fn handle_fs_events(
                 }
             }
             Err(e) => {
-                error!("Filesystem monitoring error: {}", e);
+                error!("Filesystem monitoring error: {e}");
             }
         }
     }
@@ -485,11 +484,11 @@ async fn handle_api_poll(
                             match bg_ctx_clone.data_access.get_preview_path(&asset_id).await {
                                 Ok(path) => path,
                                 Err(e) => {
-                                    error!("Failed to get preview for asset {}: {}", asset_id, e);
-                                    let mut processing = processing_assets_clone
+                                    error!("Failed to get preview for asset {asset_id}: {e}");
+                                    processing_assets_clone
                                         .lock()
-                                        .expect("Failed to lock processing assets");
-                                    processing.remove(&asset_id);
+                                        .expect("Failed to lock processing assets")
+                                        .remove(&asset_id);
                                     return;
                                 }
                             };
@@ -527,7 +526,7 @@ async fn handle_api_poll(
                             if let ImageAnalysisError::AlreadyProcessed { .. } = e {
                                 // Expected when ignoring existing files
                             } else {
-                                error!("Background processing error for: {}", asset_id);
+                                error!("Background processing error for: {asset_id}");
                             }
                         }
                     });
@@ -536,7 +535,7 @@ async fn handle_api_poll(
             }
         }
         Err(e) => {
-            error!("API polling failed: {}", e);
+            error!("API polling failed: {e}");
         }
     }
 }

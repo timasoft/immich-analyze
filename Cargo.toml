@@ -28,6 +28,25 @@ tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
 url = "2.5.8"
 uuid = { version = "1.23", features = ["serde"] }
 
+[lints.clippy]
+uninlined_format_args = "warn"
+doc_markdown = "warn"
+trivially_copy_pass_by_ref = "warn"
+missing_const_for_fn = "warn"
+unused_async = "warn"
+ignored_unit_patterns = "warn"
+map_unwrap_or = "warn"
+match_wildcard_for_single_variants = "warn"
+unnecessary_wraps = "warn"
+significant_drop_tightening = "warn"
+single_match_else = "warn"
+match_same_arms = "warn"
+derivable_impls = "warn"
+or_fun_call = "warn"
+redundant_closure = "warn"
+unwrap_used = "warn"
+cargo = "warn"
+
 [profile.release]
 lto = "thin"
 codegen-units = 16

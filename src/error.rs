@@ -94,7 +94,9 @@ impl ImageAnalysisError {
                 rust_i18n::t!("error.critical_processing_error", filename = filename),
                 self
             ),
-            ImageAnalysisError::InvalidImmichStructure { error } => format!(
+            ImageAnalysisError::InvalidImmichStructure { error }
+            | ImageAnalysisError::InvalidConfig { error }
+            | ImageAnalysisError::HttpClientError { error } => format!(
                 "{}\n{}",
                 rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
                 error
@@ -104,43 +106,33 @@ impl ImageAnalysisError {
                 rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
                 self
             ),
-            ImageAnalysisError::InvalidConfig { error } => format!(
-                "{}\n{}",
-                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
-                error
-            ),
-            ImageAnalysisError::HttpClientError { error } => format!(
-                "{}\n{}",
-                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
-                error
-            ),
         }
     }
 
     /// Check if this error is retryable (transient)
     #[must_use]
-    pub fn is_retryable(&self) -> bool {
+    pub const fn is_retryable(&self) -> bool {
         match self {
             // Retryable errors
             ImageAnalysisError::HttpError { status, .. } => {
                 *status == 0 || (*status >= 500 && *status <= 599) || *status == 429
             }
-            ImageAnalysisError::AllHostsUnavailable => true,
-            ImageAnalysisError::AiRequestTimeout => true,
-            ImageAnalysisError::HttpClientError { .. } => true,
+            ImageAnalysisError::AllHostsUnavailable
+            | ImageAnalysisError::AiRequestTimeout
+            | ImageAnalysisError::HttpClientError { .. } => true,
 
             // Non-retryable errors
-            ImageAnalysisError::EmptyFile { .. } => false,
-            ImageAnalysisError::InvalidUuid { .. } => false,
-            ImageAnalysisError::InvalidImmichStructure { .. } => false,
-            ImageAnalysisError::InvalidApiKey => false,
-            ImageAnalysisError::InvalidConfig { .. } => false,
-            ImageAnalysisError::EmptyResponse { .. } => false,
-            ImageAnalysisError::JsonParsing { .. } => false,
-            ImageAnalysisError::AlreadyProcessed { .. } => false,
-            ImageAnalysisError::DatabaseError { .. } => false,
-            ImageAnalysisError::ProcessingError { .. } => false,
-            ImageAnalysisError::FileWriteTimeout { .. } => false,
+            ImageAnalysisError::EmptyFile { .. }
+            | ImageAnalysisError::InvalidUuid { .. }
+            | ImageAnalysisError::InvalidImmichStructure { .. }
+            | ImageAnalysisError::InvalidApiKey
+            | ImageAnalysisError::InvalidConfig { .. }
+            | ImageAnalysisError::EmptyResponse { .. }
+            | ImageAnalysisError::JsonParsing { .. }
+            | ImageAnalysisError::AlreadyProcessed { .. }
+            | ImageAnalysisError::DatabaseError { .. }
+            | ImageAnalysisError::ProcessingError { .. }
+            | ImageAnalysisError::FileWriteTimeout { .. } => false,
         }
     }
 }

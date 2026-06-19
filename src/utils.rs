@@ -13,16 +13,18 @@ pub fn get_system_locale() -> String {
     std::env::var("LC_ALL")
         .or_else(|_| std::env::var("LC_MESSAGES"))
         .or_else(|_| std::env::var("LANG"))
-        .map(|s| {
-            s.split('.')
-                .next()
-                .unwrap_or("en")
-                .split('_')
-                .next()
-                .unwrap_or("en")
-                .to_lowercase()
-        })
-        .unwrap_or_else(|_| "en".to_string())
+        .map_or_else(
+            |_| "en".to_string(),
+            |s| {
+                s.split('.')
+                    .next()
+                    .unwrap_or("en")
+                    .split('_')
+                    .next()
+                    .unwrap_or("en")
+                    .to_lowercase()
+            },
+        )
 }
 
 static PREVIEW_PATTERN: OnceLock<Regex> = OnceLock::new();
@@ -164,7 +166,7 @@ pub async fn build_final_description(
     let re = get_ai_block_pattern();
     if re.is_match(&existing) {
         Ok(re
-            .replace(&existing, format!("\n{}\n", ai_wrapped))
+            .replace(&existing, format!("\n{ai_wrapped}\n"))
             .trim()
             .to_string())
     } else {
@@ -207,14 +209,13 @@ pub fn determine_locale(
     "en".to_string()
 }
 
-pub fn validate_args(args: &crate::args::Args) -> Result<(), Box<dyn std::error::Error>> {
+pub fn validate_args(args: &crate::args::Args) {
     if args.combined && args.monitor {
         eprintln!("{}", rust_i18n::t!("error.incompatible_flags"));
         eprintln!("{}", rust_i18n::t!("error.combined_monitor_conflict"));
         eprintln!("{}", rust_i18n::t!("error.use_combined_or_monitor"));
         std::process::exit(1);
     }
-    Ok(())
 }
 
 pub fn validate_immich_directory(path: &Path) -> Result<(), Box<dyn std::error::Error>> {

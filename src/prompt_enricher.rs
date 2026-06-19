@@ -92,7 +92,7 @@ impl PromptContext {
         self
     }
 
-    pub fn with_rating(mut self, rating: Option<u8>) -> Self {
+    pub const fn with_rating(mut self, rating: Option<u8>) -> Self {
         self.rating = rating;
         self
     }
@@ -147,23 +147,23 @@ impl PromptContext {
                 }
                 _ => asset_type.clone(),
             };
-            context_parts.push(format!("Asset type: {}", desc));
+            context_parts.push(format!("Asset type: {desc}"));
         }
 
         if let (Some(w), Some(h)) = (self.width, self.height) {
-            context_parts.push(format!("Resolution: {}×{}", w, h));
+            context_parts.push(format!("Resolution: {w}×{h}"));
         }
 
         if let Some(ref date) = self.created_at {
-            context_parts.push(format!("Date taken: {}", date));
+            context_parts.push(format!("Date taken: {date}"));
         }
 
         if let Some(ref tz) = self.time_zone {
-            context_parts.push(format!("Time zone: {}", tz));
+            context_parts.push(format!("Time zone: {tz}"));
         }
 
         if let Some(ref location) = self.location {
-            context_parts.push(format!("Location: {}", location));
+            context_parts.push(format!("Location: {location}"));
         }
 
         if !self.people.is_empty() {
@@ -171,8 +171,8 @@ impl PromptContext {
                 .people
                 .iter()
                 .map(|(name, age)| match age {
-                    Some(a) if *a == 0 => format!("{} (<1 year)", name),
-                    Some(a) => format!("{} ({} years)", name, a),
+                    Some(a) if *a == 0 => format!("{name} (<1 year)"),
+                    Some(a) => format!("{name} ({a} years)"),
                     None => name.clone(),
                 })
                 .collect();
@@ -185,46 +185,46 @@ impl PromptContext {
 
         if let Some(ref make) = self.camera_make {
             let camera_info = if let Some(ref model) = self.camera_model {
-                format!("{} {}", make, model)
+                format!("{make} {model}")
             } else {
                 make.clone()
             };
-            context_parts.push(format!("Camera: {}", camera_info));
+            context_parts.push(format!("Camera: {camera_info}"));
         }
 
         if let Some(ref lens) = self.lens_model {
-            context_parts.push(format!("Lens: {}", lens));
+            context_parts.push(format!("Lens: {lens}"));
         }
 
         let mut exposure_parts = Vec::new();
         if let Some(ref et) = self.exposure_time {
-            exposure_parts.push(format!("{}s", et));
+            exposure_parts.push(format!("{et}s"));
         }
         if let Some(f) = self.f_number {
-            exposure_parts.push(format!("f/{:.1}", f));
+            exposure_parts.push(format!("f/{f:.1}"));
         }
         if let Some(fl) = self.focal_length {
-            exposure_parts.push(format!("{:.0}mm", fl));
+            exposure_parts.push(format!("{fl:.0}mm"));
         }
         if let Some(iso) = self.iso {
-            exposure_parts.push(format!("ISO {}", iso));
+            exposure_parts.push(format!("ISO {iso}"));
         }
         if !exposure_parts.is_empty() {
             context_parts.push(format!("Exposure: {}", exposure_parts.join(", ")));
         }
 
         if let Some(rating) = self.rating {
-            context_parts.push(format!("Rating: {}/5", rating));
+            context_parts.push(format!("Rating: {rating}/5"));
         }
 
         if let Some(ref name) = self.original_file_name {
-            context_parts.push(format!("Original filename: {}", name));
+            context_parts.push(format!("Original filename: {name}"));
         }
 
         if let Some(ref desc) = self.exif_description
             && !desc.is_empty()
         {
-            context_parts.push(format!("Existing description: {}", desc));
+            context_parts.push(format!("Existing description: {desc}"));
         }
 
         if context_parts.is_empty() {
@@ -266,17 +266,19 @@ pub async fn enrich_prompt_if_needed(
         return None;
     }
 
-    match ctx.data_access {
-        DataAccess::ImmichApi { provider } => match provider.get_asset_metadata(asset_id).await {
+    if let DataAccess::ImmichApi { provider } = ctx.data_access {
+        match provider.get_asset_metadata(asset_id).await {
             Ok(metadata) => {
                 let photo_date = metadata
                     .local_date_time
                     .as_deref()
                     .or(metadata.file_created_at.as_deref())
-                    .or(metadata
-                        .exif_info
-                        .as_ref()
-                        .and_then(|e| e.date_time_original.as_deref()));
+                    .or_else(|| {
+                        metadata
+                            .exif_info
+                            .as_ref()
+                            .and_then(|e| e.date_time_original.as_deref())
+                    });
 
                 let people_with_ages: Vec<(String, Option<u32>)> = metadata
                     .people
@@ -333,13 +335,12 @@ pub async fn enrich_prompt_if_needed(
                 Some(context.build_enriched_prompt())
             }
             Err(e) => {
-                warn!("Failed to get asset metadata for enrichment: {}", e);
+                warn!("Failed to get asset metadata for enrichment: {e}");
                 None
             }
-        },
-        _ => {
-            warn!("Prompt enrichment is only supported in Immich API mode, skipping");
-            None
         }
+    } else {
+        warn!("Prompt enrichment is only supported in Immich API mode, skipping");
+        None
     }
 }

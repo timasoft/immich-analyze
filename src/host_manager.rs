@@ -17,7 +17,7 @@ use std::{
 impl Interface {
     /// Returns the API endpoint path for the given interface.
     #[inline]
-    pub fn endpoint(&self) -> &'static str {
+    pub const fn endpoint(self) -> &'static str {
         match self {
             Self::Ollama => "/api/chat",
             Self::Llamacpp => "/v1/chat/completions",
@@ -26,7 +26,7 @@ impl Interface {
 
     /// Returns `true` if the interface supports Bearer token authentication.
     #[inline]
-    pub fn supports_bearer_auth(&self) -> bool {
+    pub const fn supports_bearer_auth(self) -> bool {
         match self {
             Self::Ollama => false,
             Self::Llamacpp => true,
@@ -34,7 +34,7 @@ impl Interface {
     }
 
     /// Parses the response JSON and extracts the content string for the given interface.
-    pub fn parse_response<'a>(&self, json_value: &'a Value) -> Option<&'a str> {
+    pub fn parse_response(self, json_value: &Value) -> Option<&str> {
         match self {
             Self::Ollama => json_value
                 .get("message")
@@ -51,7 +51,7 @@ impl Interface {
     }
 
     /// Builds the JSON request body specific to the AI service interface.
-    pub fn build_request_body(&self, model_name: &str, prompt: &str, base64_image: &str) -> Value {
+    pub fn build_request_body(self, model_name: &str, prompt: &str, base64_image: &str) -> Value {
         match self {
             Self::Ollama => serde_json::json!({
                 "model": model_name,
@@ -130,7 +130,7 @@ impl HostManager {
         }
     }
 
-    pub async fn get_available_host(&self) -> Result<String, ImageAnalysisError> {
+    pub fn get_available_host(&self) -> Result<String, ImageAnalysisError> {
         debug!(
             "Looking for available {:?} hosts. Total hosts: {}",
             self.interface,
@@ -175,17 +175,17 @@ impl HostManager {
             );
             return Ok(host.clone());
         }
+        drop(unavailable);
 
         error!("No {:?} hosts available at all", self.interface);
         Err(ImageAnalysisError::AllHostsUnavailable)
     }
 
-    pub async fn mark_host_unavailable(&self, host: &str) {
-        let mut unavailable = self
-            .unavailable_hosts
+    pub fn mark_host_unavailable(&self, host: &str) {
+        self.unavailable_hosts
             .lock()
-            .expect("unavailable_hosts mutex poisoned");
-        unavailable.insert(host.to_string(), Instant::now());
+            .expect("unavailable_hosts mutex poisoned")
+            .insert(host.to_string(), Instant::now());
         println!(
             "{}",
             rust_i18n::t!("host_manager.host_marked_unavailable", host = host)
@@ -227,14 +227,15 @@ impl HostManager {
                 info!(
                     "Retry attempt {}/{} for image {}",
                     attempt,
-                    self.max_retries.map_or("∞".to_string(), |m| m.to_string()),
+                    self.max_retries
+                        .map_or_else(|| "∞".to_string(), |m| m.to_string()),
                     filename
                 );
             }
 
             // Try each available host until we get a successful response
             for _ in 0..self.hosts.len() {
-                let host = match self.get_available_host().await {
+                let host = match self.get_available_host() {
                     Ok(host) => host,
                     Err(e) => {
                         error!("Failed to get available {:?} host: {:?}", self.interface, e);
@@ -250,7 +251,7 @@ impl HostManager {
                 if self.interface.supports_bearer_auth() {
                     if let Some(ref api_key) = self.api_key {
                         debug!("Adding Authorization header with API key");
-                        request = request.header("Authorization", format!("Bearer {}", api_key));
+                        request = request.header("Authorization", format!("Bearer {api_key}"));
                     } else {
                         debug!("No API key provided for {:?} request", self.interface);
                     }
@@ -276,7 +277,7 @@ impl HostManager {
 
                         if response.status().is_success() {
                             let response_text = response.text().await.map_err(|e| {
-                                error!("Failed to read response body: {}", e);
+                                error!("Failed to read response body: {e}");
                                 ImageAnalysisError::ProcessingError {
                                     filename: filename.clone(),
                                     error: e.to_string(),
@@ -292,7 +293,7 @@ impl HostManager {
                                     if let Some(description) = content {
                                         let description = description.trim().to_string();
                                         if description.is_empty() {
-                                            warn!("Empty response for image: {}", filename);
+                                            warn!("Empty response for image: {filename}");
                                             last_error = Some(ImageAnalysisError::EmptyResponse {
                                                 filename: filename.clone(),
                                             });
@@ -310,8 +311,7 @@ impl HostManager {
                                         }
                                     } else {
                                         error!(
-                                            "Failed to extract content from response for {}",
-                                            filename
+                                            "Failed to extract content from response for {filename}"
                                         );
                                         last_error = Some(ImageAnalysisError::JsonParsing {
                                             filename: filename.clone(),
@@ -321,8 +321,7 @@ impl HostManager {
                                 }
                                 Err(parse_error) => {
                                     error!(
-                                        "Failed to parse response as JSON for {}: {}",
-                                        filename, parse_error
+                                        "Failed to parse response as JSON for {filename}: {parse_error}"
                                     );
                                     let error = ImageAnalysisError::JsonParsing {
                                         filename: filename.clone(),
@@ -371,7 +370,7 @@ impl HostManager {
                     "Marking {:?} host as unavailable due to error: {}",
                     self.interface, host
                 );
-                self.mark_host_unavailable(&host).await;
+                self.mark_host_unavailable(&host);
             }
 
             if let Some(ref e) = last_error

@@ -10,7 +10,7 @@ use uuid::Uuid;
 /// Mode of data access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum DataAccessMode {
-    /// Direct PostgreSQL database access (default, preferred)
+    /// Direct `PostgreSQL` database access (default, preferred)
     Database,
     /// Immich REST API access (alternative when DB access unavailable)
     ImmichApi,
@@ -22,9 +22,9 @@ pub enum DataAccessMode {
 /// and dispatches method calls based on the active variant.
 #[derive(Clone)]
 pub enum DataAccess {
-    /// Database-backed access using existing PostgreSQL functions
+    /// Database-backed access using existing `PostgreSQL` functions
     Database {
-        /// PostgreSQL client for direct database queries
+        /// `PostgreSQL` client for direct database queries
         client: Arc<PgClient>,
         /// Root path to Immich data directory (for filesystem access to thumbs/)
         immich_root: PathBuf,
@@ -40,9 +40,9 @@ impl DataAccess {
     /// Creates a new database-backed data access handle.
     ///
     /// # Arguments
-    /// * `client` - Arc-wrapped PostgreSQL client
+    /// * `client` - Arc-wrapped `PostgreSQL` client
     /// * `immich_root` - Path to Immich root directory (containing thumbs/)
-    pub fn new_database(client: Arc<PgClient>, immich_root: PathBuf) -> Self {
+    pub const fn new_database(client: Arc<PgClient>, immich_root: PathBuf) -> Self {
         Self::Database {
             client,
             immich_root,
@@ -53,7 +53,7 @@ impl DataAccess {
     ///
     /// # Arguments
     /// * `provider` - Arc-wrapped Immich API provider
-    pub fn new_api(provider: Arc<ImmichApiProvider>) -> Self {
+    pub const fn new_api(provider: Arc<ImmichApiProvider>) -> Self {
         Self::ImmichApi { provider }
     }
 
@@ -66,7 +66,7 @@ impl DataAccess {
     /// Fetches from Immich API `/api/search/metadata` endpoint, returning all assets.
     ///
     /// # Returns
-    /// Vector of AssetRef structs for assets awaiting description generation.
+    /// Vector of `AssetRef` structs for assets awaiting description generation.
     pub async fn get_assets_to_process(&self) -> Result<Vec<AssetRef>, ImageAnalysisError> {
         match self {
             Self::Database {
@@ -112,7 +112,7 @@ impl DataAccess {
     /// * `asset_id` - UUID of the target asset
     ///
     /// # Returns
-    /// PathBuf to the preview image file suitable for AI analysis.
+    /// `PathBuf` to the preview image file suitable for AI analysis.
     pub async fn get_preview_path(&self, asset_id: &Uuid) -> Result<PathBuf, ImageAnalysisError> {
         match self {
             Self::Database { immich_root, .. } => {
@@ -229,7 +229,7 @@ impl DataAccess {
     /// Queries `asset_exif` table using existing `crate::database::asset_has_description`.
     ///
     /// # API mode
-    /// Fetches asset metadata via API and checks exif_info.description field.
+    /// Fetches asset metadata via API and checks `exif_info.description` field.
     ///
     /// # Arguments
     /// * `asset_id` - UUID of the target asset

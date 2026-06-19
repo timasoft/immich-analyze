@@ -1,3 +1,5 @@
+#![allow(clippy::multiple_crate_versions)]
+
 use clap::Parser;
 use std::{num::NonZeroU32, path::Path, sync::Arc};
 use tokio_postgres::NoTls;
@@ -41,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rust_i18n::t!("autodetect.locale_selected", locale = final_locale)
     );
 
-    validate_args(&args)?;
+    validate_args(&args);
 
     // Create data access based on mode
     let data_access = match args.data_access_mode {
@@ -223,7 +225,7 @@ async fn run_batch_mode(
         process_files_concurrently(assets, &http_client, data_access, args, locale, progress).await;
 
     if !args.no_final_output {
-        file_processing::display_results(&results, args.max_concurrent > 1)?;
+        file_processing::display_results(&results, args.max_concurrent > 1);
     }
     Ok(())
 }

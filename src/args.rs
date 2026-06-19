@@ -44,13 +44,13 @@ pub struct Args {
     /// Path to Immich root directory (containing upload/, thumbs/ folders)
     #[arg(long, default_value = "/var/lib/immich")]
     pub immich_root: String,
-    /// PostgreSQL connection string (used only in database mode)
+    /// `PostgreSQL` connection string (used only in database mode)
     #[arg(
         long,
         default_value = "host=localhost user=postgres dbname=immich password=your_password"
     )]
     pub postgres_url: String,
-    /// Data access mode: database (direct PostgreSQL) or api (Immich REST API)
+    /// Data access mode: database (direct `PostgreSQL`) or api (Immich REST API)
     #[arg(short, long, value_enum, default_value = "database")]
     pub data_access_mode: DataAccessMode,
     /// Immich API base URL (required when using api access mode)
