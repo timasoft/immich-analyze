@@ -65,14 +65,7 @@ pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, Imag
                 }
             }
             Err(e) => {
-                error!(
-                    "{}",
-                    rust_i18n::t!(
-                        "error.reading_directory",
-                        path = current_dir.display().to_string(),
-                        error = e.to_string()
-                    )
-                );
+                error!("Error reading directory {}: {}", current_dir.display(), e);
             }
         }
     }
@@ -202,7 +195,7 @@ pub async fn process_files_concurrently(
                     {
                         let mut progress_guard = progress.lock().await;
                         progress_guard.set_message_and_inc(&rust_i18n::t!(
-                            "progress.finished",
+                            "progress.error",
                             filename = filename
                         ));
                     }
@@ -306,7 +299,7 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
                 "{} [{}] {}\n{}",
                 rust_i18n::t!("status.skipped"),
                 filename,
-                rust_i18n::t!("main.invalid_uuid_filename", filename = filename),
+                rust_i18n::t!("error.invalid_uuid_filename", filename = filename),
                 "-".repeat(80)
             ),
         ),

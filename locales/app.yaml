@@ -8,57 +8,16 @@ autodetect.locale_not_supported:
   en: " Specified locale '%{locale}' is not supported. Available locales: %{available}"
   ru: " Указанная локаль '%{locale}' не поддерживается. Доступные локали: %{available}"
 
-# Warning messages
-warning.database_load_error:
-  en: " Database loading error"
-  ru: " Ошибка загрузки базы данных"
-warning.database_load_error_with_details:
-  en: " Database loading error: %{error}"
-  ru: " Ошибка загрузки базы данных: %{error}"
-warning.database_read_error:
-  en: " Database file reading error"
-  ru: " Ошибка чтения файла базы данных"
-warning.database_read_error_with_details:
-  en: " Database file reading error: %{error}"
-  ru: " Ошибка чтения файла базы данных: %{error}"
-warning.creating_new_database:
-  en: " New database created"
-  ru: " Создана новая база"
-warning.database_load_timeout:
-  en: " Database loading timeout reached. Using empty database."
-  ru: " Достигнут таймаут загрузки базы данных. Используется пустая база."
-
 # Main messages
-main.directory_created:
-  en: " Created images folder: %{path}"
-  ru: " Создана папка для изображений: %{path}"
 main.monitor_mode_activated:
   en: " Monitoring mode activated"
   ru: " Активирован режим мониторинга папки"
-main.no_images_found:
-  en: " No images found for processing in folder: %{path}"
-  ru: " В папке %{path} не найдено изображений для обработки"
-main.all_files_already_processed:
-  en: " All found images are already in the database"
-  ru: " Все найденные изображения уже есть в базе данных"
-main.overwrite_existing_enabled:
-  en: " Overwrite existing database entries mode enabled"
-  ru: " Включен режим перезаписи существующих записей в базе данных"
-main.monitor_hint:
-  en: " Tip: to start monitoring new files, run with -m parameter"
-  ru: " Подсказка: чтобы начать мониторинг новых файлов, запустите с параметром -m"
-main.images_found:
-  en: " Found images: %{count}"
-  ru: " Найдено изображений: %{count}"
 main.model_name:
   en: "  Model: %{name}"
   ru: "  Модель: %{name}"
 main.max_concurrent:
   en: " Maximum concurrent requests: %{count}"
   ru: " Максимум одновременных запросов: %{count}"
-main.database_path:
-  en: " Database: %{path}"
-  ru: " База данных: %{path}"
 main.timeout:
   en: " Request timeout: %{seconds} seconds"
   ru: " Таймаут запросов: %{seconds} секунд"
@@ -80,33 +39,18 @@ main.skipped:
 main.total_processed:
   en: " Total processed: %{count}"
   ru: " Всего обработано: %{count}"
-main.database_saved:
-  en: " Database saved to: %{path}"
-  ru: " База данных сохранена в: %{path}"
 main.error_recommendations:
   en: " Error recommendations"
   ru: " Рекомендации по ошибкам"
-main.not_a_directory:
-  en: " %{path} is not a directory"
-  ru: " %{path} не является папкой"
 main.ignore_existing_enabled:
   en: " Ignore existing database entries mode enabled"
   ru: " Включен режим игнорирования существующих записей в базе данных"
 main.missing_ai_enabled:
   en: " Processing assets without [AI] block (skipping those with AI descriptions)"
   ru: " Обработка ассетов без блока [AI] (пропускаем те, у которых есть AI-описание)"
-main.database_loaded:
-  en: " Loaded database: %{count} records from %{path}"
-  ru: " Загружена база данных: %{count} записей из %{path}"
 main.file_already_in_database:
-  en: " File %{filename} is already in database. Skipping."
-  ru: " Файл %{filename} уже есть в базе данных. Пропускаем."
-main.no_new_images_found:
-  en: " No new images found for processing in folder: %{path}"
-  ru: " В папке %{path} не найдено новых изображений для обработки"
-main.no_new_images_found_ignore_existing:
-  en: " No new images found for processing in folder: %{path} (with --ignore-existing flag)"
-  ru: " В папке %{path} не найдено новых изображений для обработки (с флагом --ignore-existing)"
+  en: " File %{filename} already has a description. Skipping."
+  ru: " Файл %{filename} уже имеет описание. Пропускаем."
 main.images_to_process:
   en: " Images to process: %{count}"
   ru: " Изображений для обработки: %{count}"
@@ -117,8 +61,8 @@ main.database_connected:
   en: " Connected to: %{path}"
   ru: " Подключено к: %{path}"
 main.database_updates_complete:
-  en: " All database updates completed"
-  ru: " Все обновления базы данных завершены"
+  en: " All updates completed"
+  ru: " Все обновления завершены"
 main.postgres_connected:
   en: " Connected to PostgreSQL: %{url}"
   ru: " Подключено к PostgreSQL: %{url}"
@@ -128,12 +72,6 @@ main.immich_api_connected:
 main.processing_existing_images:
   en: " Processing existing images..."
   ru: " Обработка существующих изображений..."
-main.switching_to_monitor_mode:
-  en: " Switching to folder monitoring mode..."
-  ru: " Переключение в режим мониторинга папки..."
-main.combined_mode_complete:
-  en: " Combined mode completed successfully"
-  ru: " Комбинированный режим успешно завершен"
 main.batch_mode_completed:
   en: " Batch mode completed successfully"
   ru: " Batch режим успешно завершен"
@@ -145,6 +83,9 @@ main.monitor_mode_started_in_background:
 progress.processing:
   en: " Processing: %{filename}"
   ru: " Обрабатывается: %{filename}"
+progress.error:
+  en: " Error processing: %{filename}"
+  ru: " Ошибка обработки: %{filename}"
 progress.finished:
   en: " Finished processing: %{filename}"
   ru: " Обработка завершена: %{filename}"
@@ -159,9 +100,6 @@ status.success:
 status.error:
   en: ""
   ru: ""
-status.critical_error:
-  en: ""
-  ru: ""
 status.skipped:
   en: ""
   ru: ""
@@ -170,9 +108,6 @@ status.skipped:
 recommendation.check_service_status:
   en: " Check that AI service is running (Ollama or llama.cpp server)"
   ru: " Проверьте, что ИИ сервис запущен (Ollama или llama.cpp сервер)"
-recommendation.pull_model:
-  en: " Make sure the model is installed: ollama pull %{model}"
-  ru: " Убедитесь, что модель установлена: ollama pull %{model}"
 recommendation.check_file_sizes:
   en: " Check image sizes - too large files may cause errors"
   ru: " Проверьте размер изображений - слишком большие файлы могут вызывать ошибки"
@@ -208,9 +143,6 @@ monitor.stop_signal_received:
 monitor.stopping_monitoring:
   en: " Stopping monitoring..."
   ru: " Остановка мониторинга..."
-monitor.event_channel_disconnected:
-  en: " Event channel disconnected. Ending monitoring..."
-  ru: " Канал событий отключен. Завершение мониторинга..."
 monitor.file_detected:
   en: " New file detected: %{filename}"
   ru: " Обнаружен новый файл: %{filename}"
@@ -221,14 +153,14 @@ monitor.file_stable:
   en: " File %{filename} is stable and ready for processing"
   ru: " Файл %{filename} стабилен и готов к обработке"
 monitor.file_already_in_db:
-  en: " File %{filename} is already in database. Skipping."
-  ru: " Файл %{filename} уже есть в базе данных. Пропускаем."
+  en: " File %{filename} already has a description. Skipping."
+  ru: " Файл %{filename} уже имеет описание. Пропускаем."
 monitor.processing_success:
   en: " Successfully processed: %{filename}"
   ru: " Успешно обработан: %{filename}"
 monitor.database_updated:
-  en: " Database updated for: %{filename}"
-  ru: " База данных обновлена для: %{filename}"
+  en: " Description updated for: %{filename}"
+  ru: " Описание обновлено для: %{filename}"
 monitor.file_already_processing:
   en: " File %{filename} is already being processed"
   ru: " Файл %{filename} уже в обработке"
@@ -238,17 +170,7 @@ monitor.file_queued:
 monitor.skipping_duplicate_event:
   en: " Skipping duplicate event for: %{filename} (cooldown %{cooldown}s)"
   ru: " Пропускаем дублирующее событие для: %{filename} (cooldown %{cooldown}s)"
-monitor.filesystem_monitoring_error_details:
-  en: " Filesystem monitoring error: %{error}"
-  ru: " Ошибка отслеживания файловой системы: %{error}"
-monitor.postgres_connected:
-  en: " Connected to PostgreSQL: %{url}"
-  ru: " Подключено к PostgreSQL: %{url}"
-
 # Database messages
-database.parameters:
-  en: " Parameters: %{params}"
-  ru: " Параметры: %{params}"
 database.error_checking_description:
   en: " Error checking description: %{error}"
   ru: " Ошибка проверки описания: %{error}"
@@ -258,27 +180,9 @@ database.updating_asset:
 database.description_length:
   en: " Description (length: %{length}): %{preview}"
   ru: " Описание (длина: %{length}): %{preview}"
-database.update_success:
-  en: " Successfully updated description for asset: %{asset_id}"
-  ru: " Успешно обновлено описание для ассета: %{asset_id}"
-database.asset_not_found:
-  en: " Asset %{asset_id} not found, creating new record"
-  ru: " Ассет %{asset_id} не найден, создаем новую запись"
-database.update_error:
-  en: " Update error for asset %{asset_id}: %{error}"
-  ru: " Ошибка обновления для ассета %{asset_id}: %{error}"
 database.sql_query_details:
   en: " SQL Query details: %{query}"
   ru: " Подробности SQL-запроса: %{query}"
-database.asset_existence_check_error:
-  en: " Error checking asset existence: %{error}"
-  ru: " Ошибка проверки существования ассета: %{error}"
-database.asset_not_in_table:
-  en: " Asset %{asset_id} does not exist in the asset table!"
-  ru: " Ассет %{asset_id} не существует в таблице asset!"
-database.asset_not_found_error:
-  en: "  Asset %{asset_id} not found in asset table"
-  ru: "  Ассет %{asset_id} не найден в таблице asset"
 database.insert_success:
   en: " Successfully created/updated description for asset: %{asset_id}"
   ru: " Успешно создано/обновлено описание для ассета: %{asset_id}"
@@ -298,42 +202,21 @@ host_manager.host_marked_unavailable:
 error.empty_file:
   en: " Empty image file: %{filename}"
   ru: " Пустой файл изображения: %{filename}"
-error.http_error:
-  en: " HTTP error %{status} for file %{filename}"
-  ru: " HTTP ошибка %{status} для файла %{filename}"
 error.http_error_with_details:
   en: " HTTP error %{status} for file %{filename}. Response: %{response}"
   ru: " HTTP ошибка %{status} для файла %{filename}. Ответ: %{response}"
 error.empty_response:
   en: " Model returned empty description for file %{filename}"
   ru: " Модель вернула пустое описание для файла %{filename}"
-error.json_parsing:
-  en: " JSON parsing error for file %{filename}"
-  ru: " Ошибка парсинга JSON для файла %{filename}"
 error.json_parsing_with_details:
   en: " JSON parsing error for file %{filename}: %{error}"
   ru: " Ошибка парсинга JSON для файла %{filename}: %{error}"
-error.file_write_timeout:
-  en: " File write timeout for file %{filename}"
-  ru: " Таймаут ожидания полной записи файла для файла %{filename}"
 error.file_write_timeout_with_details:
   en: " File write timeout (%{timeout} seconds) for file %{filename}"
   ru: " Таймаут ожидания полной записи файла (%{timeout} секунд) для файла %{filename}"
-error.processing_error:
-  en: " Processing error for %{filename}"
-  ru: " Ошибка обработки %{filename}"
 error.critical_processing_error:
   en: " Critical processing error for %{filename}"
   ru: " Критическая ошибка обработки %{filename}"
-error.not_a_directory:
-  en: " %{path} is not a directory"
-  ru: " %{path} не является папкой"
-error.background_processing_error:
-  en: " Background processing error for %{filename}"
-  ru: " Ошибка в фоновой обработке %{filename}"
-error.filesystem_monitoring_error_details:
-  en: " Filesystem monitoring error: %{error}"
-  ru: " Ошибка отслеживания файловой системы: %{error}"
 error.database_error:
   en: " Database error: %{error}"
   ru: " Ошибка базы данных: %{error}"
@@ -355,15 +238,12 @@ error.thumbs_directory_not_found:
 error.thumbs_path_not_directory:
   en: " Thumbs path is not a directory: %{path}"
   ru: " Путь к thumbs не является папкой: %{path}"
-error.reading_directory:
-  en: " Error reading directory %{path}: %{error}"
-  ru: " Ошибка чтения директории %{path}: %{error}"
 error.invalid_immich_structure:
   en: " Invalid Immich library structure: %{error}"
   ru: " Неверная структура библиотеки Immich: %{error}"
-error.invalid_uuid:
-  en: " Invalid UUID format in filename: %{filename}"
-  ru: " Неверный формат UUID в имени файла: %{filename}"
+error.invalid_uuid_filename:
+  en: " Invalid UUID in filename: %{filename}"
+  ru: " Неверный UUID в имени файла: %{filename}"
 error.incompatible_flags:
   en: " Incompatible command line flags detected"
   ru: " Обнаружены несовместимые флаги командной строки"
@@ -373,21 +253,15 @@ error.combined_monitor_conflict:
 error.use_combined_or_monitor:
   en: "  Choose either combined mode (-c) OR monitoring mode (-m), but not both"
   ru: "  Выберите либо комбинированный режим (-c), ЛИБО режим мониторинга (-m), но не оба сразу"
-error.database_save_failed:
-  en: " Failed to save database. Changes may be lost."
-  ru: " Не удалось сохранить базу данных. Изменения могут быть потеряны."
 error.directory_not_found:
   en: " Directory not found: %{path}"
   ru: " Папка не найдена: %{path}"
+error.not_a_directory:
+  en: " %{path} is not a directory"
+  ru: " %{path} не является папкой"
 error.query_failed_error:
   en: " Query failed: %{error}"
   ru: " Запрос не выполнен: %{error}"
-error.timeout_error:
-  en: " Database connection timeout"
-  ru: " Таймаут подключения к базе данных"
-error.invalid_uuid_filename:
-  en: " Invalid UUID in filename: %{filename}"
-  ru: " Неверный UUID в имени файла: %{filename}"
 error.batch_mode_failed:
   en: " Batch mode failed: %{error}"
   ru: " Batch режим завершился с ошибкой: %{error}"
@@ -395,8 +269,5 @@ error.all_hosts_unavailable:
   en: " All servers are unavailable. Cannot process image."
   ru: " Все серверы недоступны. Невозможно обработать изображение."
 error.ai_request_timeout:
-  en: " AI service request timed out after 60 seconds"
-  ru: " Таймаут запроса к ИИ сервису превысил 60 секунд"
-error.api_polling_failed:
-  en: " API polling failed: %{error}"
-  ru: " Опрос API не удался: %{error}"
+  en: " AI service request timed out"
+  ru: " Таймаут запроса к ИИ сервису"

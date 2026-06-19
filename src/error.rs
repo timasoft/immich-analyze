@@ -87,7 +87,7 @@ impl ImageAnalysisError {
                 rust_i18n::t!("error.critical_processing_error", filename = filename),
             ),
             ImageAnalysisError::AlreadyProcessed { filename } => {
-                rust_i18n::t!("error.critical_processing_error", filename = filename).to_string()
+                rust_i18n::t!("main.file_already_in_database", filename = filename).to_string()
             }
             ImageAnalysisError::InvalidUuid { filename } => format!(
                 "{}\n{}",

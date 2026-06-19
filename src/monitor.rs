@@ -413,13 +413,7 @@ async fn handle_fs_events(
                                 if let ImageAnalysisError::AlreadyProcessed { filename: _ } = e {
                                     // Expected when ignoring existing files
                                 } else {
-                                    error!(
-                                        "{}",
-                                        rust_i18n::t!(
-                                            "error.background_processing_error",
-                                            filename = filename_clone
-                                        )
-                                    );
+                                    error!("Background processing error for: {}", filename_clone);
                                 }
                             }
                         });
@@ -427,13 +421,7 @@ async fn handle_fs_events(
                 }
             }
             Err(e) => {
-                error!(
-                    "{}",
-                    rust_i18n::t!(
-                        "error.filesystem_monitoring_error_details",
-                        error = e.to_string()
-                    )
-                );
+                error!("Filesystem monitoring error: {}", e);
             }
         }
     }
@@ -553,13 +541,7 @@ async fn handle_api_poll(
                             if let ImageAnalysisError::AlreadyProcessed { .. } = e {
                                 // Expected when ignoring existing files
                             } else {
-                                error!(
-                                    "{}",
-                                    rust_i18n::t!(
-                                        "error.background_processing_error",
-                                        filename = asset_id.to_string()
-                                    )
-                                );
+                                error!("Background processing error for: {}", asset_id);
                             }
                         }
                     });
@@ -568,10 +550,7 @@ async fn handle_api_poll(
             }
         }
         Err(e) => {
-            error!(
-                "{}",
-                rust_i18n::t!("error.api_polling_failed", error = e.to_string())
-            );
+            error!("API polling failed: {}", e);
         }
     }
 }

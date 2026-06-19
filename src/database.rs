@@ -137,14 +137,14 @@ pub async fn check_database_connection(client: &PgClient) -> Result<bool, ImageA
             Err(ImageAnalysisError::DatabaseError {
                 error: format!(
                     "{}",
-                    rust_i18n::t!("database.query_failed_error", error = e.to_string())
+                    rust_i18n::t!("error.query_failed_error", error = e.to_string())
                 ),
             })
         }
         Err(_) => {
             eprintln!("{}", rust_i18n::t!("error.database_timeout"));
             Err(ImageAnalysisError::DatabaseError {
-                error: format!("{}", rust_i18n::t!("database.timeout_error")),
+                error: format!("{}", rust_i18n::t!("error.database_timeout")),
             })
         }
     }
