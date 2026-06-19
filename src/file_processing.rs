@@ -1,5 +1,4 @@
 use crate::{
-    args::OverwritePolicy,
     config::ProcessingContext,
     data_access::DataAccess,
     database::ImageAnalysisResult,
@@ -9,7 +8,7 @@ use crate::{
     progress::SimpleProgress,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
-        build_final_description, extract_uuid_from_preview_filename, get_ai_block_pattern,
+        build_final_description, check_overwrite_policy, extract_uuid_from_preview_filename,
         is_preview_filename,
     },
 };
@@ -83,25 +82,8 @@ async fn process_file_with_existing_check(
         .to_string();
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    let existing_description = match ctx.overwrite_policy {
-        OverwritePolicy::All => None,
-        OverwritePolicy::None => {
-            if ctx.data_access.has_description(&asset_id).await? {
-                return Err(ImageAnalysisError::AlreadyProcessed { filename });
-            }
-            None
-        }
-        OverwritePolicy::MissingAi => match ctx.data_access.get_description(&asset_id).await {
-            Ok(Some(desc)) => {
-                if get_ai_block_pattern().is_match(&desc) {
-                    return Err(ImageAnalysisError::AlreadyProcessed { filename });
-                }
-                Some(desc)
-            }
-            Ok(None) => None,
-            Err(e) => return Err(e),
-        },
-    };
+    let existing_description =
+        check_overwrite_policy(ctx.data_access, &asset_id, &filename, ctx.overwrite_policy).await?;
 
     process_file(ctx, path, existing_description).await
 }

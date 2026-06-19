@@ -1,5 +1,4 @@
 use crate::{
-    args::OverwritePolicy,
     config::{MonitorConfig, ProcessingContext},
     data_access::DataAccess,
     error::ImageAnalysisError,
@@ -7,7 +6,7 @@ use crate::{
     immich_api::ImmichApiProvider,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
-        build_final_description, extract_uuid_from_preview_filename, get_ai_block_pattern,
+        build_final_description, check_overwrite_policy, extract_uuid_from_preview_filename,
         is_preview_filename,
     },
 };
@@ -84,33 +83,20 @@ pub async fn process_new_file(
     );
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    let existing_description = match ctx.overwrite_policy {
-        OverwritePolicy::All => None,
-        OverwritePolicy::None => {
-            if data_access.has_description(&asset_id).await? {
+    let existing_description =
+        match check_overwrite_policy(ctx.data_access, &asset_id, &filename, ctx.overwrite_policy)
+            .await
+        {
+            Ok(desc) => desc,
+            Err(ImageAnalysisError::AlreadyProcessed { .. }) => {
                 println!(
                     "{}",
                     rust_i18n::t!("monitor.file_already_in_db", filename = filename)
                 );
                 return Ok(());
             }
-            None
-        }
-        OverwritePolicy::MissingAi => match data_access.get_description(&asset_id).await {
-            Ok(Some(desc)) => {
-                if get_ai_block_pattern().is_match(&desc) {
-                    println!(
-                        "{}",
-                        rust_i18n::t!("monitor.file_already_in_db", filename = filename)
-                    );
-                    return Ok(());
-                }
-                Some(desc)
-            }
-            Ok(None) => None,
             Err(e) => return Err(e),
-        },
-    };
+        };
 
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await

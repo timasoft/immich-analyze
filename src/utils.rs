@@ -1,4 +1,7 @@
-use crate::{data_access::DataAccess, database::ImageAnalysisResult, error::ImageAnalysisError};
+use crate::{
+    args::OverwritePolicy, data_access::DataAccess, database::ImageAnalysisResult,
+    error::ImageAnalysisError,
+};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use log::warn;
 use regex::Regex;
@@ -92,6 +95,43 @@ pub fn read_image_as_base64(
             error: e.to_string(),
         })?;
     Ok(STANDARD.encode(&image_data))
+}
+
+/// Check overwrite policy and return existing description if it should be preserved.
+///
+/// Returns:
+/// - `Ok(None)` — proceed with fresh analysis
+/// - `Ok(Some(desc))` — proceed with existing human description preserved
+/// - `Err(AlreadyProcessed)` — skip this asset per policy
+pub async fn check_overwrite_policy(
+    data_access: &DataAccess,
+    asset_id: &Uuid,
+    filename: &str,
+    overwrite_policy: OverwritePolicy,
+) -> Result<Option<String>, ImageAnalysisError> {
+    match overwrite_policy {
+        OverwritePolicy::All => Ok(None),
+        OverwritePolicy::None => {
+            if data_access.has_description(asset_id).await? {
+                return Err(ImageAnalysisError::AlreadyProcessed {
+                    filename: filename.to_string(),
+                });
+            }
+            Ok(None)
+        }
+        OverwritePolicy::MissingAi => match data_access.get_description(asset_id).await {
+            Ok(Some(desc)) => {
+                if get_ai_block_pattern().is_match(&desc) {
+                    return Err(ImageAnalysisError::AlreadyProcessed {
+                        filename: filename.to_string(),
+                    });
+                }
+                Ok(Some(desc))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(e),
+        },
+    }
 }
 
 pub async fn build_final_description(
