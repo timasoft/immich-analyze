@@ -1,4 +1,5 @@
 use crate::error::ImageAnalysisError;
+use log::warn;
 use reqwest::{
     Client,
     header::{HeaderMap, HeaderValue},
@@ -258,7 +259,13 @@ impl ImmichApiProvider {
 
                 if !response.status().is_success() {
                     let status = response.status().as_u16();
-                    let body = response.text().await.unwrap_or_default();
+                    let body = match response.text().await {
+                        Ok(text) => text,
+                        Err(err) => {
+                            warn!("Failed to read error response body: {err}");
+                            String::new()
+                        }
+                    };
                     return Err(ImageAnalysisError::HttpError {
                         status,
                         filename: "assets_list".to_owned(),
@@ -346,7 +353,13 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status().as_u16(),
                         filename: asset_id.to_string(),
-                        response: resp.text().await.unwrap_or_default(),
+                        response: match resp.text().await {
+                            Ok(text) => text,
+                            Err(err) => {
+                                warn!("Failed to read response body: {err}");
+                                String::new()
+                            }
+                        },
                     });
                 }
                 Err(err) => {
@@ -402,7 +415,13 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status().as_u16(),
                         filename: asset_id.to_string(),
-                        response: resp.text().await.unwrap_or_default(),
+                        response: match resp.text().await {
+                            Ok(text) => text,
+                            Err(err) => {
+                                warn!("Failed to read response body: {err}");
+                                String::new()
+                            }
+                        },
                     });
                 }
                 Err(err) => {
@@ -462,7 +481,13 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status().as_u16(),
                         filename: asset_id.to_string(),
-                        response: resp.text().await.unwrap_or_default(),
+                        response: match resp.text().await {
+                            Ok(text) => text,
+                            Err(err) => {
+                                warn!("Failed to read response body: {err}");
+                                String::new()
+                            }
+                        },
                     });
                 }
                 Err(err) => {
@@ -520,7 +545,13 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status().as_u16(),
                         filename: asset_id.to_string(),
-                        response: resp.text().await.unwrap_or_default(),
+                        response: match resp.text().await {
+                            Ok(text) => text,
+                            Err(err) => {
+                                warn!("Failed to read response body: {err}");
+                                String::new()
+                            }
+                        },
                     });
                 }
                 Err(err) => {

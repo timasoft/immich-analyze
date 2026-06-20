@@ -9,6 +9,13 @@ use std::{borrow::Cow, path::Path, str::FromStr as _, sync::OnceLock};
 use tokio::io::AsyncReadExt as _;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OverwriteDecision {
+    Skip,
+    AnalyzeFresh,
+    PreserveExisting(String),
+}
+
 /// Get system locale from environment variables
 pub fn get_system_locale() -> String {
     std::env::var("LC_ALL")
@@ -72,6 +79,15 @@ pub fn is_preview_filename(filename: &str) -> bool {
     filename.contains("_preview.") || filename.contains("-preview.")
 }
 
+/// Extract filename from a path, falling back to "unknown".
+#[must_use]
+pub fn filename_from_path(path: &Path) -> String {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_owned()
+}
+
 pub async fn read_image_as_base64(
     image_path: &Path,
     filename: &str,
@@ -104,38 +120,28 @@ pub async fn read_image_as_base64(
     Ok(STANDARD.encode(&image_data))
 }
 
-/// Check overwrite policy and return existing description if it should be preserved.
-///
-/// Returns:
-/// - `Ok(None)` — proceed with fresh analysis
-/// - `Ok(Some(desc))` — proceed with existing human description preserved
-/// - `Err(AlreadyProcessed)` — skip this asset per policy
+/// Check overwrite policy and return decision on how to handle the asset.
 pub async fn check_overwrite_policy(
     data_access: &DataAccess,
     asset_id: &Uuid,
-    filename: &str,
     overwrite_policy: OverwritePolicy,
-) -> Result<Option<String>, ImageAnalysisError> {
+) -> Result<OverwriteDecision, ImageAnalysisError> {
     match overwrite_policy {
-        OverwritePolicy::All => Ok(None),
+        OverwritePolicy::All => Ok(OverwriteDecision::AnalyzeFresh),
         OverwritePolicy::None => {
             if data_access.has_description(asset_id).await? {
-                return Err(ImageAnalysisError::AlreadyProcessed {
-                    filename: filename.to_owned(),
-                });
+                return Ok(OverwriteDecision::Skip);
             }
-            Ok(None)
+            Ok(OverwriteDecision::AnalyzeFresh)
         }
         OverwritePolicy::MissingAi => match data_access.get_description(asset_id).await {
             Ok(Some(desc)) => {
                 if get_ai_block_pattern().is_match(&desc) {
-                    return Err(ImageAnalysisError::AlreadyProcessed {
-                        filename: filename.to_owned(),
-                    });
+                    return Ok(OverwriteDecision::Skip);
                 }
-                Ok(Some(desc))
+                Ok(OverwriteDecision::PreserveExisting(desc))
             }
-            Ok(None) => Ok(None),
+            Ok(None) => Ok(OverwriteDecision::AnalyzeFresh),
             Err(err) => Err(err),
         },
     }

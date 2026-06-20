@@ -8,8 +8,8 @@ use crate::{
     progress::SimpleProgress,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
-        build_final_description, check_overwrite_policy, extract_uuid_from_preview_filename,
-        is_preview_filename,
+        OverwriteDecision, build_final_description, check_overwrite_policy,
+        extract_uuid_from_preview_filename, filename_from_path, is_preview_filename,
     },
 };
 use futures::stream::{self, StreamExt as _};
@@ -77,17 +77,14 @@ async fn process_file_with_existing_check(
     ctx: &ProcessingContext<'_>,
     path: &Path,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_owned();
+    let filename = filename_from_path(path);
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    let existing_description =
-        check_overwrite_policy(ctx.data_access, &asset_id, &filename, ctx.overwrite_policy).await?;
-
-    process_file(ctx, path, existing_description).await
+    match check_overwrite_policy(ctx.data_access, &asset_id, ctx.overwrite_policy).await? {
+        OverwriteDecision::Skip => Err(ImageAnalysisError::AlreadyProcessed { filename }),
+        OverwriteDecision::AnalyzeFresh => process_file(ctx, path, None).await,
+        OverwriteDecision::PreserveExisting(desc) => process_file(ctx, path, Some(desc)).await,
+    }
 }
 
 async fn process_file(
@@ -97,11 +94,7 @@ async fn process_file(
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     let data_access = ctx.data_access;
 
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_owned();
+    let filename = filename_from_path(path);
 
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
@@ -184,24 +177,20 @@ pub async fn process_files_concurrently(
                     return (filename, Err(err));
                 }
             };
-            let filename = preview_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_owned();
+            let filename = filename_from_path(&preview_path);
             progress_clone
                 .lock()
                 .await
                 .set_message(&rust_i18n::t!("progress.processing", filename = filename));
 
-            let ctx = ProcessingContext {
+            let ctx = ProcessingContext::new(
                 data_access,
-                prompt: &prompt,
-                host_manager: &host_manager_clone,
+                &prompt,
+                &host_manager_clone,
                 overwrite_policy,
-                enrich_prompt: args.enrich_prompt,
-                preserve_human: args.preserve_human,
-            };
+                args.enrich_prompt,
+                args.preserve_human,
+            );
 
             let result = process_file_with_existing_check(&ctx, &preview_path).await;
             progress_clone

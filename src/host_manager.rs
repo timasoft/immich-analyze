@@ -1,7 +1,7 @@
 use crate::{
     args::Interface,
     error::ImageAnalysisError,
-    utils::{extract_uuid_from_preview_filename, read_image_as_base64},
+    utils::{extract_uuid_from_preview_filename, filename_from_path, read_image_as_base64},
 };
 use log::{debug, error, info, warn};
 use reqwest::Client;
@@ -196,11 +196,7 @@ impl HostManager {
         image_path: &Path,
         prompt: &str,
     ) -> Result<crate::database::ImageAnalysisResult, ImageAnalysisError> {
-        let filename = image_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_owned();
+        let filename = filename_from_path(image_path);
 
         info!(
             "Starting {:?} analysis for image: {}",

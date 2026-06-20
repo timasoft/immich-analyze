@@ -1,6 +1,6 @@
 use crate::error::ImageAnalysisError;
 use crate::immich_api::{AssetRef, ImmichApiProvider};
-use crate::utils::{extract_uuid_from_preview_filename, is_preview_filename};
+use crate::utils::{extract_uuid_from_preview_filename, filename_from_path, is_preview_filename};
 use clap::ValueEnum;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -78,12 +78,9 @@ impl DataAccess {
 
                 let mut assets = Vec::new();
                 for file_path in preview_files {
-                    let filename = file_path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("unknown");
+                    let filename = filename_from_path(&file_path);
 
-                    if let Ok(asset_id) = extract_uuid_from_preview_filename(filename) {
+                    if let Ok(asset_id) = extract_uuid_from_preview_filename(&filename) {
                         assets.push(AssetRef { id: asset_id });
                     }
                 }

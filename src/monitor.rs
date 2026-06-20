@@ -6,8 +6,8 @@ use crate::{
     immich_api::ImmichApiProvider,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
-        build_final_description, check_overwrite_policy, extract_uuid_from_preview_filename,
-        is_preview_filename,
+        OverwriteDecision, build_final_description, check_overwrite_policy,
+        extract_uuid_from_preview_filename, filename_from_path, is_preview_filename,
     },
 };
 use log::{error, warn};
@@ -41,11 +41,7 @@ pub async fn process_new_file(
 ) -> Result<(), ImageAnalysisError> {
     let data_access = ctx.data_access;
 
-    let filename = preview_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_owned();
+    let filename = filename_from_path(preview_path);
     println!(
         "{}",
         rust_i18n::t!("monitor.file_detected", filename = filename)
@@ -84,17 +80,16 @@ pub async fn process_new_file(
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
     let existing_description =
-        match check_overwrite_policy(ctx.data_access, &asset_id, &filename, ctx.overwrite_policy)
-            .await
-        {
-            Ok(desc) => desc,
-            Err(ImageAnalysisError::AlreadyProcessed { .. }) => {
+        match check_overwrite_policy(ctx.data_access, &asset_id, ctx.overwrite_policy).await {
+            Ok(OverwriteDecision::Skip) => {
                 println!(
                     "{}",
                     rust_i18n::t!("monitor.file_already_in_db", filename = filename)
                 );
                 return Ok(());
             }
+            Ok(OverwriteDecision::AnalyzeFresh) => None,
+            Ok(OverwriteDecision::PreserveExisting(desc)) => Some(desc),
             Err(err) => return Err(err),
         };
 
@@ -373,14 +368,14 @@ fn handle_fs_events(
 
                         tokio::spawn(async move {
                             rust_i18n::set_locale(&config_clone.lang);
-                            let ctx = ProcessingContext {
-                                data_access: &bg_ctx_clone.data_access,
-                                prompt: &bg_ctx_clone.prompt,
-                                host_manager: &bg_ctx_clone.host_manager,
-                                overwrite_policy: config_clone.overwrite_policy,
-                                enrich_prompt: config_clone.enrich_prompt,
-                                preserve_human: config_clone.preserve_human,
-                            };
+                            let ctx = ProcessingContext::new(
+                                &bg_ctx_clone.data_access,
+                                &bg_ctx_clone.prompt,
+                                &bg_ctx_clone.host_manager,
+                                config_clone.overwrite_policy,
+                                config_clone.enrich_prompt,
+                                config_clone.preserve_human,
+                            );
                             let result = process_new_file(
                                 &ctx,
                                 &path_clone,
@@ -494,14 +489,14 @@ async fn handle_api_poll(
                                 }
                             };
 
-                        let ctx = ProcessingContext {
-                            data_access: &bg_ctx_clone.data_access,
-                            prompt: &bg_ctx_clone.prompt,
-                            host_manager: &bg_ctx_clone.host_manager,
-                            overwrite_policy: config_clone.overwrite_policy,
-                            enrich_prompt: config_clone.enrich_prompt,
-                            preserve_human: config_clone.preserve_human,
-                        };
+                        let ctx = ProcessingContext::new(
+                            &bg_ctx_clone.data_access,
+                            &bg_ctx_clone.prompt,
+                            &bg_ctx_clone.host_manager,
+                            config_clone.overwrite_policy,
+                            config_clone.enrich_prompt,
+                            config_clone.preserve_human,
+                        );
 
                         let result = process_new_file(
                             &ctx,

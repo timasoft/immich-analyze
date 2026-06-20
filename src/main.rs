@@ -1,7 +1,7 @@
 #![warn(non_ascii_idents)]
 
 use clap::Parser as _;
-use std::{num::NonZeroU32, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 use tokio_postgres::NoTls;
 
 mod args;
@@ -147,23 +147,7 @@ async fn run_monitor_mode(
         OverwritePolicy::MissingAi => println!("{}", rust_i18n::t!("main.missing_ai_enabled")),
         OverwritePolicy::None => {}
     }
-    let monitor_config = MonitorConfig {
-        file_write_timeout: args.file_write_timeout,
-        file_check_interval: args.file_check_interval,
-        event_cooldown: args.event_cooldown,
-        timeout: args.timeout,
-        lang: locale.to_owned(),
-        overwrite_policy,
-        hosts: args.hosts.clone(),
-        interface: args.interface,
-        api_key: args.api_key.clone(),
-        unavailable_duration: args.unavailable_duration,
-        api_poll_interval: args.api_poll_interval,
-        max_retries: NonZeroU32::new(args.max_retries),
-        retry_delay_seconds: args.retry_delay_seconds,
-        enrich_prompt: args.enrich_prompt,
-        preserve_human: args.preserve_human,
-    };
+    let monitor_config = MonitorConfig::from_args(args, locale);
     monitor_folder(
         &args.model_name,
         data_access.clone(),
