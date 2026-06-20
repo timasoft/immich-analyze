@@ -1,4 +1,5 @@
 use crate::error::ImageAnalysisError;
+use log::warn;
 use reqwest::{
     Client,
     header::{HeaderMap, HeaderValue},
@@ -25,7 +26,7 @@ pub struct AssetResponse {
     pub exif_info: Option<ExifInfo>,
 }
 
-/// Person info from Immich API (subset of PersonWithFacesResponseDto).
+/// Person info from Immich API (subset of `PersonWithFacesResponseDto`).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersonInfo {
@@ -34,7 +35,7 @@ pub struct PersonInfo {
     pub birth_date: Option<String>,
 }
 
-/// Tag info from Immich API (subset of TagResponseDto).
+/// Tag info from Immich API (subset of `TagResponseDto`).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagInfo {
@@ -121,7 +122,7 @@ struct AssetSearchResult {
 pub struct ImmichApiProvider {
     /// HTTP clients with authentication headers (one per API key)
     clients: Vec<Client>,
-    /// Base URL of the Immich server (e.g., "https://immich.example.com")
+    /// Base URL of the Immich server (e.g., "<https://immich.example.com>")
     base_url: Url,
 }
 
@@ -135,6 +136,8 @@ impl std::fmt::Debug for ImmichApiProvider {
 }
 
 impl ImmichApiProvider {
+    const PAGE_SIZE: usize = 1000;
+
     /// Creates a new Immich API provider.
     ///
     /// # Arguments
@@ -143,10 +146,11 @@ impl ImmichApiProvider {
     ///
     /// # Errors
     /// Returns an error if the URL is invalid or any API key contains invalid characters.
-    pub fn new(base_url: &str, api_keys: &[String]) -> Result<Self, ImageAnalysisError> {
-        let base_url = Url::parse(base_url).map_err(|e| ImageAnalysisError::InvalidConfig {
-            error: e.to_string(),
-        })?;
+    pub fn new(base_url_str: &str, api_keys: &[String]) -> Result<Self, ImageAnalysisError> {
+        let base_url =
+            Url::parse(base_url_str).map_err(|err| ImageAnalysisError::InvalidConfig {
+                error: err.to_string(),
+            })?;
 
         let clients: Vec<Client> = api_keys
             .iter()
@@ -160,15 +164,15 @@ impl ImmichApiProvider {
                     .default_headers(headers)
                     .timeout(Duration::from_secs(30))
                     .build()
-                    .map_err(|e| ImageAnalysisError::HttpClientError {
-                        error: e.to_string(),
+                    .map_err(|err| ImageAnalysisError::HttpClientError {
+                        error: err.to_string(),
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
 
         if clients.is_empty() {
             return Err(ImageAnalysisError::InvalidConfig {
-                error: "At least one API key is required".to_string(),
+                error: "At least one API key is required".to_owned(),
             });
         }
 
@@ -183,75 +187,7 @@ impl ImmichApiProvider {
     /// # Returns
     /// Vec<AssetRef> containing all assets with their ID and original path.
     pub async fn get_assets(&self) -> Result<Vec<AssetRef>, ImageAnalysisError> {
-        const PAGE_SIZE: usize = 1000;
-        let mut all_assets = Vec::new();
-
-        let search_url = self.base_url.join("/api/search/metadata").map_err(|e| {
-            ImageAnalysisError::InvalidConfig {
-                error: e.to_string(),
-            }
-        })?;
-
-        for client in &self.clients {
-            let mut page: usize = 1;
-            loop {
-                let body = serde_json::json!({
-                    "page": page,
-                    "size": PAGE_SIZE,
-                    "withExif": true
-                });
-
-                let response = client
-                    .post(search_url.clone())
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(|e| ImageAnalysisError::HttpError {
-                        status: 0,
-                        filename: "assets_list".to_string(),
-                        response: e.to_string(),
-                    })?;
-
-                if !response.status().is_success() {
-                    let status = response.status().as_u16();
-                    let body = response.text().await.unwrap_or_default();
-                    return Err(ImageAnalysisError::HttpError {
-                        status,
-                        filename: "assets_list".to_string(),
-                        response: body,
-                    });
-                }
-
-                let search_result: AssetSearchResponse =
-                    response
-                        .json()
-                        .await
-                        .map_err(|e| ImageAnalysisError::JsonParsing {
-                            filename: "assets_list".to_string(),
-                            error: e.to_string(),
-                        })?;
-
-                if search_result.assets.items.is_empty() {
-                    break;
-                }
-
-                for item in search_result.assets.items {
-                    let asset_id =
-                        Uuid::parse_str(&item.id).map_err(|_| ImageAnalysisError::InvalidUuid {
-                            filename: item.id.clone(),
-                        })?;
-
-                    all_assets.push(AssetRef { id: asset_id });
-                }
-
-                if search_result.assets.next_page.is_none() {
-                    break;
-                }
-                page += 1;
-            }
-        }
-
-        Ok(all_assets)
+        self.search_assets_paginated(None).await
     }
 
     /// Fetches assets created after a specific timestamp from the Immich library.
@@ -277,43 +213,62 @@ impl ImmichApiProvider {
         &self,
         since: impl Into<String>,
     ) -> Result<Vec<AssetRef>, ImageAnalysisError> {
-        const PAGE_SIZE: usize = 1000;
-        let mut all_assets = Vec::new();
-        let since_str = since.into();
+        self.search_assets_paginated(Some(since.into())).await
+    }
 
-        let search_url = self.base_url.join("/api/search/metadata").map_err(|e| {
+    /// Shared paginated search across all clients.
+    async fn search_assets_paginated(
+        &self,
+        since: Option<String>,
+    ) -> Result<Vec<AssetRef>, ImageAnalysisError> {
+        let mut all_assets = Vec::new();
+
+        let search_url = self.base_url.join("/api/search/metadata").map_err(|err| {
             ImageAnalysisError::InvalidConfig {
-                error: e.to_string(),
+                error: err.to_string(),
             }
         })?;
 
         for client in &self.clients {
             let mut page: usize = 1;
             loop {
-                let body = serde_json::json!({
+                let mut body = serde_json::json!({
                     "page": page,
-                    "size": PAGE_SIZE,
+                    "size": Self::PAGE_SIZE,
                     "withExif": true,
-                    "createdAfter": since_str
                 });
+                if let Some(since_val) = &since
+                    && let Some(obj) = body.as_object_mut()
+                {
+                    obj.insert(
+                        "createdAfter".to_owned(),
+                        serde_json::Value::String(since_val.clone()),
+                    );
+                }
 
                 let response = client
                     .post(search_url.clone())
                     .json(&body)
                     .send()
                     .await
-                    .map_err(|e| ImageAnalysisError::HttpError {
+                    .map_err(|err| ImageAnalysisError::HttpError {
                         status: 0,
-                        filename: "assets_list".to_string(),
-                        response: e.to_string(),
+                        filename: "assets_list".to_owned(),
+                        response: err.to_string(),
                     })?;
 
                 if !response.status().is_success() {
                     let status = response.status().as_u16();
-                    let body = response.text().await.unwrap_or_default();
+                    let body = match response.text().await {
+                        Ok(text) => text,
+                        Err(err) => {
+                            warn!("Failed to read error response body: {err}");
+                            String::new()
+                        }
+                    };
                     return Err(ImageAnalysisError::HttpError {
                         status,
-                        filename: "assets_list".to_string(),
+                        filename: "assets_list".to_owned(),
                         response: body,
                     });
                 }
@@ -322,9 +277,9 @@ impl ImmichApiProvider {
                     response
                         .json()
                         .await
-                        .map_err(|e| ImageAnalysisError::JsonParsing {
-                            filename: "assets_list".to_string(),
-                            error: e.to_string(),
+                        .map_err(|err| ImageAnalysisError::JsonParsing {
+                            filename: "assets_list".to_owned(),
+                            error: err.to_string(),
                         })?;
 
                 if search_result.assets.items.is_empty() {
@@ -343,7 +298,7 @@ impl ImmichApiProvider {
                 if search_result.assets.next_page.is_none() {
                     break;
                 }
-                page += 1;
+                page = page.saturating_add(1);
             }
         }
 
@@ -360,13 +315,13 @@ impl ImmichApiProvider {
     /// * `asset_id` - UUID of the asset
     ///
     /// # Returns
-    /// PathBuf to the preview image file (either existing file or downloaded temp file)
+    /// `PathBuf` to the preview image file (either existing file or downloaded temp file)
     pub async fn get_preview_path(&self, asset_id: &Uuid) -> Result<PathBuf, ImageAnalysisError> {
         let url = self
             .base_url
-            .join(&format!("/api/assets/{}/thumbnail?size=preview", asset_id))
-            .map_err(|e| ImageAnalysisError::InvalidConfig {
-                error: e.to_string(),
+            .join(&format!("/api/assets/{asset_id}/thumbnail?size=preview"))
+            .map_err(|err| ImageAnalysisError::InvalidConfig {
+                error: err.to_string(),
             })?;
 
         let mut last_error = None;
@@ -375,20 +330,20 @@ impl ImmichApiProvider {
 
             match response {
                 Ok(resp) if resp.status().is_success() => {
-                    let bytes = resp
-                        .bytes()
-                        .await
-                        .map_err(|e| ImageAnalysisError::HttpError {
-                            status: 0,
-                            filename: asset_id.to_string(),
-                            response: e.to_string(),
-                        })?;
+                    let bytes =
+                        resp.bytes()
+                            .await
+                            .map_err(|err| ImageAnalysisError::HttpError {
+                                status: 0,
+                                filename: asset_id.to_string(),
+                                response: err.to_string(),
+                            })?;
 
-                    let temp_path = std::env::temp_dir().join(format!("{}_preview.tmp", asset_id));
-                    tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
+                    let temp_path = std::env::temp_dir().join(format!("{asset_id}_preview.tmp"));
+                    tokio::fs::write(&temp_path, &bytes).await.map_err(|err| {
                         ImageAnalysisError::ProcessingError {
                             filename: asset_id.to_string(),
-                            error: e.to_string(),
+                            error: err.to_string(),
                         }
                     })?;
 
@@ -398,14 +353,20 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status().as_u16(),
                         filename: asset_id.to_string(),
-                        response: resp.text().await.unwrap_or_default(),
+                        response: match resp.text().await {
+                            Ok(text) => text,
+                            Err(err) => {
+                                warn!("Failed to read response body: {err}");
+                                String::new()
+                            }
+                        },
                     });
                 }
-                Err(e) => {
+                Err(err) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: 0,
                         filename: asset_id.to_string(),
-                        response: e.to_string(),
+                        response: err.to_string(),
                     });
                 }
             }
@@ -414,7 +375,7 @@ impl ImmichApiProvider {
         Err(last_error.unwrap_or_else(|| ImageAnalysisError::HttpError {
             status: 0,
             filename: asset_id.to_string(),
-            response: "No API keys available".to_string(),
+            response: "No API keys available".to_owned(),
         }))
     }
 
@@ -437,9 +398,9 @@ impl ImmichApiProvider {
 
         let url = self
             .base_url
-            .join(&format!("/api/assets/{}", asset_id))
-            .map_err(|e| ImageAnalysisError::InvalidConfig {
-                error: e.to_string(),
+            .join(&format!("/api/assets/{asset_id}"))
+            .map_err(|err| ImageAnalysisError::InvalidConfig {
+                error: err.to_string(),
             })?;
 
         let body = UpdateRequest { description };
@@ -454,14 +415,20 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status().as_u16(),
                         filename: asset_id.to_string(),
-                        response: resp.text().await.unwrap_or_default(),
+                        response: match resp.text().await {
+                            Ok(text) => text,
+                            Err(err) => {
+                                warn!("Failed to read response body: {err}");
+                                String::new()
+                            }
+                        },
                     });
                 }
-                Err(e) => {
+                Err(err) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: 0,
                         filename: asset_id.to_string(),
-                        response: e.to_string(),
+                        response: err.to_string(),
                     });
                 }
             }
@@ -470,7 +437,7 @@ impl ImmichApiProvider {
         Err(last_error.unwrap_or_else(|| ImageAnalysisError::HttpError {
             status: 0,
             filename: asset_id.to_string(),
-            response: "No API keys available".to_string(),
+            response: "No API keys available".to_owned(),
         }))
     }
 
@@ -485,9 +452,9 @@ impl ImmichApiProvider {
     pub async fn has_description(&self, asset_id: &Uuid) -> Result<bool, ImageAnalysisError> {
         let url = self
             .base_url
-            .join(&format!("/api/assets/{}", asset_id))
-            .map_err(|e| ImageAnalysisError::InvalidConfig {
-                error: e.to_string(),
+            .join(&format!("/api/assets/{asset_id}"))
+            .map_err(|err| ImageAnalysisError::InvalidConfig {
+                error: err.to_string(),
             })?;
 
         let mut last_error = None;
@@ -499,29 +466,35 @@ impl ImmichApiProvider {
                     let asset: AssetResponse =
                         resp.json()
                             .await
-                            .map_err(|e| ImageAnalysisError::JsonParsing {
+                            .map_err(|err| ImageAnalysisError::JsonParsing {
                                 filename: asset_id.to_string(),
-                                error: e.to_string(),
+                                error: err.to_string(),
                             })?;
 
                     return Ok(asset
                         .exif_info
                         .as_ref()
-                        .and_then(|e| e.description.as_ref())
-                        .is_some_and(|d| !d.is_empty()));
+                        .and_then(|exif| exif.description.as_ref())
+                        .is_some_and(|desc| !desc.is_empty()));
                 }
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status().as_u16(),
                         filename: asset_id.to_string(),
-                        response: resp.text().await.unwrap_or_default(),
+                        response: match resp.text().await {
+                            Ok(text) => text,
+                            Err(err) => {
+                                warn!("Failed to read response body: {err}");
+                                String::new()
+                            }
+                        },
                     });
                 }
-                Err(e) => {
+                Err(err) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: 0,
                         filename: asset_id.to_string(),
-                        response: e.to_string(),
+                        response: err.to_string(),
                     });
                 }
             }
@@ -530,7 +503,7 @@ impl ImmichApiProvider {
         Err(last_error.unwrap_or_else(|| ImageAnalysisError::HttpError {
             status: 0,
             filename: asset_id.to_string(),
-            response: "No API keys available".to_string(),
+            response: "No API keys available".to_owned(),
         }))
     }
 
@@ -540,16 +513,16 @@ impl ImmichApiProvider {
     /// * `asset_id` - UUID of the asset
     ///
     /// # Returns
-    /// AssetMetadata containing all available metadata
+    /// `AssetMetadata` containing all available metadata
     pub async fn get_asset_metadata(
         &self,
         asset_id: &Uuid,
     ) -> Result<AssetMetadata, ImageAnalysisError> {
         let url = self
             .base_url
-            .join(&format!("/api/assets/{}", asset_id))
-            .map_err(|e| ImageAnalysisError::InvalidConfig {
-                error: e.to_string(),
+            .join(&format!("/api/assets/{asset_id}"))
+            .map_err(|err| ImageAnalysisError::InvalidConfig {
+                error: err.to_string(),
             })?;
 
         let mut last_error = None;
@@ -561,9 +534,9 @@ impl ImmichApiProvider {
                     let metadata: AssetMetadata =
                         resp.json()
                             .await
-                            .map_err(|e| ImageAnalysisError::JsonParsing {
+                            .map_err(|err| ImageAnalysisError::JsonParsing {
                                 filename: asset_id.to_string(),
-                                error: e.to_string(),
+                                error: err.to_string(),
                             })?;
 
                     return Ok(metadata);
@@ -572,14 +545,20 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status().as_u16(),
                         filename: asset_id.to_string(),
-                        response: resp.text().await.unwrap_or_default(),
+                        response: match resp.text().await {
+                            Ok(text) => text,
+                            Err(err) => {
+                                warn!("Failed to read response body: {err}");
+                                String::new()
+                            }
+                        },
                     });
                 }
-                Err(e) => {
+                Err(err) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: 0,
                         filename: asset_id.to_string(),
-                        response: e.to_string(),
+                        response: err.to_string(),
                     });
                 }
             }
@@ -588,7 +567,7 @@ impl ImmichApiProvider {
         Err(last_error.unwrap_or_else(|| ImageAnalysisError::HttpError {
             status: 0,
             filename: asset_id.to_string(),
-            response: "No API keys available".to_string(),
+            response: "No API keys available".to_owned(),
         }))
     }
 }

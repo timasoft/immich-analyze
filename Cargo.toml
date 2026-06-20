@@ -24,9 +24,61 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.52", features = ["rt-multi-thread", "signal", "macros", "fs"] }
-tokio-postgres = "0.7"
+tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
 url = "2.5.8"
 uuid = { version = "1.23", features = ["serde"] }
+
+[lints.clippy]
+cargo = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+multiple_crate_versions = "allow"
+
+allow_attributes = "warn"
+arithmetic_side_effects = "warn"
+clone_on_ref_ptr = "warn"
+create_dir = "warn"
+dbg_macro = "warn"
+decimal_literal_representation = "warn"
+default_numeric_fallback = "warn"
+exit = "warn"
+field_scoped_visibility_modifiers = "warn"
+fn_to_numeric_cast_any = "warn"
+indexing_slicing = "warn"
+iter_over_hash_type = "warn"
+let_underscore_untyped = "warn"
+lossy_float_literal = "warn"
+map_with_unused_argument_over_ranges = "warn"
+min_ident_chars = "warn"
+mixed_read_write_in_expression = "warn"
+module_name_repetitions = "warn"
+multiple_inherent_impl = "warn"
+mutex_atomic = "warn"
+mutex_integer = "warn"
+needless_raw_strings = "warn"
+non_zero_suggestions = "warn"
+panic = "warn"
+partial_pub_fields = "warn"
+precedence_bits = "warn"
+pub_without_shorthand = "warn"
+rc_mutex = "warn"
+redundant_test_prefix = "warn"
+redundant_type_annotations = "warn"
+ref_patterns = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+same_name_method = "warn"
+shadow_reuse = "warn"
+str_to_string = "warn"
+string_add = "warn"
+string_lit_chars_any = "warn"
+todo = "warn"
+unimplemented = "warn"
+unseparated_literal_suffix = "warn"
+unused_result_ok = "warn"
+unused_trait_names = "warn"
+unwrap_used = "warn"
+use_debug = "warn"
 
 [profile.release]
 lto = "thin"

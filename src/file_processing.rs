@@ -1,17 +1,18 @@
 use crate::{
-    args::{Interface, OverwritePolicy},
     config::ProcessingContext,
     data_access::DataAccess,
     database::ImageAnalysisResult,
     error::ImageAnalysisError,
+    host_manager::HostManager,
     immich_api::AssetRef,
-    llamacpp::{LlamaCppHostManager, analyze_image as llamacpp_analyze_image},
-    ollama::{OllamaHostManager, analyze_image as ollama_analyze_image},
     progress::SimpleProgress,
     prompt_enricher::enrich_prompt_if_needed,
-    utils::{extract_uuid_from_preview_filename, get_ai_block_pattern},
+    utils::{
+        OverwriteDecision, build_final_description, check_overwrite_policy,
+        extract_uuid_from_preview_filename, filename_from_path, is_preview_filename,
+    },
 };
-use futures::stream::{self, StreamExt};
+use futures::stream::{self, StreamExt as _};
 use log::{error, warn};
 use reqwest::Client;
 use std::{
@@ -22,10 +23,12 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-/// Get all preview image files from Immich thumbs directory using std::fs.
+/// Get all preview image files from Immich thumbs directory.
 ///
 /// This function is used in database mode to scan the filesystem for preview files.
-pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, ImageAnalysisError> {
+pub async fn get_immich_preview_files(
+    immich_root: &Path,
+) -> Result<Vec<PathBuf>, ImageAnalysisError> {
     let thumbs_dir = immich_root.join("thumbs");
     if !thumbs_dir.exists() {
         return Err(ImageAnalysisError::InvalidImmichStructure {
@@ -48,29 +51,22 @@ pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, Imag
     let mut preview_files = Vec::new();
     let mut stack = vec![thumbs_dir];
     while let Some(current_dir) = stack.pop() {
-        match std::fs::read_dir(&current_dir) {
-            Ok(entries) => {
-                for entry in entries.filter_map(|e| e.ok()) {
+        match tokio::fs::read_dir(&current_dir).await {
+            Ok(mut entries) => {
+                while let Ok(Some(entry)) = entries.next_entry().await {
                     let path = entry.path();
                     if path.is_dir() {
                         stack.push(path);
                     } else if path.is_file()
-                        && let Some(filename) = path.file_name().and_then(|f| f.to_str())
-                        && (filename.contains("_preview.") || filename.contains("-preview."))
+                        && let Some(filename) = path.file_name().and_then(|name| name.to_str())
+                        && is_preview_filename(filename)
                     {
                         preview_files.push(path);
                     }
                 }
             }
-            Err(e) => {
-                error!(
-                    "{}",
-                    rust_i18n::t!(
-                        "error.reading_directory",
-                        path = current_dir.display().to_string(),
-                        error = e.to_string()
-                    )
-                );
+            Err(err) => {
+                error!("Error reading directory {}: {}", current_dir.display(), err);
             }
         }
     }
@@ -81,34 +77,14 @@ async fn process_file_with_existing_check(
     ctx: &ProcessingContext<'_>,
     path: &Path,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let filename = filename_from_path(path);
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
-    let existing_description = match ctx.overwrite_policy {
-        OverwritePolicy::All => None,
-        OverwritePolicy::None => {
-            if ctx.data_access.has_description(&asset_id).await? {
-                return Err(ImageAnalysisError::AlreadyProcessed { filename });
-            }
-            None
-        }
-        OverwritePolicy::MissingAi => match ctx.data_access.get_description(&asset_id).await {
-            Ok(Some(desc)) => {
-                if get_ai_block_pattern().is_match(&desc) {
-                    return Err(ImageAnalysisError::AlreadyProcessed { filename });
-                }
-                Some(desc)
-            }
-            Ok(None) => None,
-            Err(e) => return Err(e),
-        },
-    };
-
-    process_file(ctx, path, existing_description).await
+    match check_overwrite_policy(ctx.data_access, &asset_id, ctx.overwrite_policy).await? {
+        OverwriteDecision::Skip => Err(ImageAnalysisError::AlreadyProcessed { filename }),
+        OverwriteDecision::AnalyzeFresh => process_file(ctx, path, None).await,
+        OverwriteDecision::PreserveExisting(desc) => process_file(ctx, path, Some(desc)).await,
+    }
 }
 
 async fn process_file(
@@ -116,87 +92,33 @@ async fn process_file(
     path: &Path,
     existing_description: Option<String>,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
-    let http_client = ctx.http_client;
     let data_access = ctx.data_access;
-    let model_name = ctx.model_name;
-    let ollama_manager = ctx.ollama_manager;
-    let llamacpp_manager = ctx.llamacpp_manager;
-    let timeout = ctx.timeout;
 
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let filename = filename_from_path(path);
 
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
     let preview_path = data_access.get_preview_path(&asset_id).await?;
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await
-        .unwrap_or_else(|| ctx.prompt.to_string());
+        .unwrap_or_else(|| ctx.prompt.to_owned());
 
-    let analysis = match (ollama_manager, llamacpp_manager) {
-        (Some(manager), _) => {
-            ollama_analyze_image(
-                http_client,
-                &preview_path,
-                model_name,
-                &final_prompt,
-                timeout,
-                manager,
-                ctx.max_retries,
-                ctx.retry_delay,
-            )
-            .await?
-        }
-        (_, Some(manager)) => {
-            llamacpp_analyze_image(
-                http_client,
-                &preview_path,
-                model_name,
-                &final_prompt,
-                timeout,
-                manager,
-                ctx.max_retries,
-                ctx.retry_delay,
-            )
-            .await?
-        }
-        (None, None) => return Err(ImageAnalysisError::AllHostsUnavailable),
-    };
+    let analysis = ctx
+        .host_manager
+        .analyze_image(&preview_path, &final_prompt)
+        .await?;
 
-    let _ = data_access.cleanup_preview(&preview_path).await;
+    if let Err(err) = data_access.cleanup_preview(&preview_path).await {
+        warn!("Failed to cleanup preview: {err}");
+    }
 
-    let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
-
-    let final_description = if ctx.preserve_human {
-        let existing = match existing_description {
-            Some(desc) => desc,
-            None => match data_access.get_description(&analysis.asset_id).await {
-                Ok(Some(desc)) => desc,
-                Ok(None) => ai_wrapped.clone(),
-                Err(e) => {
-                    warn!(
-                        "Failed to get existing description for asset {}, cannot preserve human text: {}",
-                        analysis.asset_id, e
-                    );
-                    return Err(e);
-                }
-            },
-        };
-
-        let re = get_ai_block_pattern();
-        if re.is_match(&existing) {
-            re.replace(&existing, format!("\n{}\n", ai_wrapped))
-                .trim()
-                .to_string()
-        } else {
-            format!("{}\n\n{}", existing.trim(), ai_wrapped)
-        }
-    } else {
-        ai_wrapped
-    };
+    let final_description = build_final_description(
+        &analysis,
+        data_access,
+        ctx.preserve_human,
+        existing_description,
+    )
+    .await?;
 
     data_access
         .update_description(&analysis.asset_id, &final_description)
@@ -213,97 +135,68 @@ pub async fn process_files_concurrently(
     locale: &str,
     progress: Arc<Mutex<SimpleProgress>>,
 ) -> Vec<(String, Result<ImageAnalysisResult, ImageAnalysisError>)> {
-    // Create host managers once for all files to preserve unavailable host state
+    // Create host manager once for all files to preserve unavailable host state
     let unavailable_duration = Duration::from_secs(args.unavailable_duration);
 
-    let ollama_manager: Option<Arc<OllamaHostManager>> = if args.interface == Interface::Ollama {
-        Some(Arc::new(OllamaHostManager::new(
-            args.hosts.clone(),
-            unavailable_duration,
-        )))
-    } else {
-        None
-    };
-
-    let llamacpp_manager: Option<Arc<LlamaCppHostManager>> =
-        if args.interface == Interface::Llamacpp {
-            Some(Arc::new(LlamaCppHostManager::new(
-                args.hosts.clone(),
-                args.api_key.clone(),
-                unavailable_duration,
-            )))
-        } else {
-            None
-        };
+    let host_manager = Arc::new(HostManager::new(
+        args.hosts.clone(),
+        args.interface,
+        http_client.clone(),
+        args.model_name.clone(),
+        args.timeout,
+        NonZeroU32::new(args.max_retries),
+        Duration::from_secs(args.retry_delay_seconds),
+        unavailable_duration,
+        args.api_key.clone(),
+    ));
 
     stream::iter(assets.into_iter().map(|asset| {
-        let http_client = http_client.clone();
-        let data_access = data_access.clone();
-        let model_name = args.model_name.clone();
         let prompt = args.prompt.clone();
-        let progress = Arc::clone(&progress);
-        let lang = locale.to_string();
+        let progress_clone = Arc::clone(&progress);
+        let lang = locale.to_owned();
         let overwrite_policy = args.effective_overwrite_policy();
         let asset_id = asset.id;
-        let timeout = args.timeout;
-        let ollama_manager = ollama_manager.clone();
-        let llamacpp_manager = llamacpp_manager.clone();
+        let host_manager_clone = Arc::clone(&host_manager);
 
         async move {
             rust_i18n::set_locale(&lang);
-            let path = match data_access.get_preview_path(&asset_id).await {
-                Ok(p) => p,
-                Err(e) => {
+            let preview_path = match data_access.get_preview_path(&asset_id).await {
+                Ok(preview_path) => preview_path,
+                Err(err) => {
                     let filename = asset_id.to_string();
-                    {
-                        let mut progress_guard = progress.lock().await;
-                        progress_guard
-                            .set_message(&rust_i18n::t!("progress.error", filename = filename));
-                    }
+                    progress_clone
+                        .lock()
+                        .await
+                        .set_message(&rust_i18n::t!("progress.error", filename = filename));
 
-                    {
-                        let mut progress_guard = progress.lock().await;
-                        progress_guard.set_message_and_inc(&rust_i18n::t!(
-                            "progress.finished",
-                            filename = filename
-                        ));
-                    }
+                    progress_clone
+                        .lock()
+                        .await
+                        .set_message_and_inc(&rust_i18n::t!("progress.error", filename = filename));
 
-                    return (filename, Err(e));
+                    return (filename, Err(err));
                 }
             };
-            let filename = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-            {
-                let mut progress_guard = progress.lock().await;
-                progress_guard
-                    .set_message(&rust_i18n::t!("progress.processing", filename = filename));
-            }
+            let filename = filename_from_path(&preview_path);
+            progress_clone
+                .lock()
+                .await
+                .set_message(&rust_i18n::t!("progress.processing", filename = filename));
 
-            let ctx = ProcessingContext {
-                http_client: &http_client,
-                data_access: &data_access,
-                model_name: &model_name,
-                prompt: &prompt,
-                timeout,
-                ollama_manager: ollama_manager.as_ref(),
-                llamacpp_manager: llamacpp_manager.as_ref(),
+            let ctx = ProcessingContext::new(
+                data_access,
+                &prompt,
+                &host_manager_clone,
                 overwrite_policy,
-                max_retries: NonZeroU32::new(args.max_retries),
-                retry_delay: Duration::from_secs(args.retry_delay_seconds),
-                enrich_prompt: args.enrich_prompt,
-                preserve_human: args.preserve_human,
-            };
+                args.enrich_prompt,
+                args.preserve_human,
+            );
 
-            let result = process_file_with_existing_check(&ctx, &path).await;
-            {
-                let mut progress_guard = progress.lock().await;
-                progress_guard
-                    .set_message_and_inc(&rust_i18n::t!("progress.finished", filename = filename));
-            }
+            let result = process_file_with_existing_check(&ctx, &preview_path).await;
+            progress_clone
+                .lock()
+                .await
+                .set_message_and_inc(&rust_i18n::t!("progress.finished", filename = filename));
             (filename, result)
         }
     }))
@@ -315,17 +208,17 @@ pub async fn process_files_concurrently(
 pub fn display_results(
     results: &[(String, Result<ImageAnalysisResult, ImageAnalysisError>)],
     use_sorting: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) {
     println!("{}", rust_i18n::t!("main.analysis_results"));
     println!("{}", "-".repeat(31));
-    let mut successful = 0;
-    let mut failed = 0;
-    let mut skipped = 0;
+    let mut successful = 0_u32;
+    let mut failed = 0_u32;
+    let mut skipped = 0_u32;
     let mut output_lines = Vec::new();
     for (filename, result) in results {
         match result {
             Ok(analysis) => {
-                successful += 1;
+                successful = successful.saturating_add(1);
                 output_lines.push(format!(
                     "{} [{}] {}\n{}",
                     rust_i18n::t!("status.success"),
@@ -334,12 +227,12 @@ pub fn display_results(
                     "-".repeat(80)
                 ));
             }
-            Err(e) => {
-                let (count_increment, line) = handle_error_result(filename, e);
+            Err(err) => {
+                let (count_increment, line) = handle_error_result(filename, err);
                 match count_increment {
-                    "success" => successful += 1,
-                    "failed" => failed += 1,
-                    "skipped" => skipped += 1,
+                    "success" => successful = successful.saturating_add(1),
+                    "failed" => failed = failed.saturating_add(1),
+                    "skipped" => skipped = skipped.saturating_add(1),
                     _ => {}
                 }
                 output_lines.push(line);
@@ -350,10 +243,9 @@ pub fn display_results(
         output_lines.sort();
     }
     for line in output_lines {
-        println!("{}", line);
+        println!("{line}");
     }
-    print_statistics(successful, failed, skipped)?;
-    Ok(())
+    print_statistics(successful, failed, skipped);
 }
 
 fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static str, String) {
@@ -374,7 +266,7 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
                 "{} [{}] {}\n{}",
                 rust_i18n::t!("status.skipped"),
                 filename,
-                rust_i18n::t!("main.invalid_uuid_filename", filename = filename),
+                rust_i18n::t!("error.invalid_uuid_filename", filename = filename),
                 "-".repeat(80)
             ),
         ),
@@ -388,81 +280,22 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
                 "-".repeat(80)
             ),
         ),
-        _ => {
-            let error_message = format_error_message(error, filename);
-            (
-                "failed",
-                format!(
-                    "{} [{}] {}\n{}",
-                    rust_i18n::t!("status.error"),
-                    filename,
-                    error_message,
-                    "-".repeat(80)
-                ),
-            )
-        }
-    }
-}
-
-fn format_error_message(error: &ImageAnalysisError, filename: &str) -> String {
-    match error {
-        ImageAnalysisError::EmptyFile { filename } => {
-            rust_i18n::t!("error.empty_file", filename = filename).to_string()
-        }
-        ImageAnalysisError::HttpError {
-            filename,
-            status,
-            response,
-        } => rust_i18n::t!(
-            "error.http_error_with_details",
-            filename = filename,
-            status = status.to_string(),
-            response = response
-        )
-        .to_string(),
-        ImageAnalysisError::EmptyResponse { filename } => {
-            rust_i18n::t!("error.empty_response", filename = filename).to_string()
-        }
-        ImageAnalysisError::JsonParsing { filename, error } => rust_i18n::t!(
-            "error.json_parsing_with_details",
-            filename = filename,
-            error = error
-        )
-        .to_string(),
-        ImageAnalysisError::FileWriteTimeout { filename, timeout } => rust_i18n::t!(
-            "error.file_write_timeout_with_details",
-            filename = filename,
-            timeout = timeout.to_string()
-        )
-        .to_string(),
-        ImageAnalysisError::DatabaseError { error } => {
-            rust_i18n::t!("error.database_error", error = error).to_string()
-        }
-        ImageAnalysisError::AllHostsUnavailable => {
-            rust_i18n::t!("error.all_hosts_unavailable").to_string()
-        }
-        ImageAnalysisError::OllamaRequestTimeout => {
-            rust_i18n::t!("error.ollama_request_timeout").to_string()
-        }
-        ImageAnalysisError::LlamaCppRequestTimeout => {
-            rust_i18n::t!("error.llamacpp_request_timeout").to_string()
-        }
-        e => {
+        _ => (
+            "failed",
             format!(
-                "{}\n{}",
-                rust_i18n::t!("error.critical_processing_error", filename = filename),
-                e
-            )
-        }
+                "{} [{}] {}\n{}",
+                rust_i18n::t!("status.error"),
+                filename,
+                error.user_message(),
+                "-".repeat(80)
+            ),
+        ),
     }
 }
 
-fn print_statistics(
-    successful: u32,
-    failed: u32,
-    skipped: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let total = successful + failed + skipped;
+fn print_statistics(successful: u32, failed: u32, skipped: u32) {
+    #[expect(clippy::arithmetic_side_effects)]
+    let total = u64::from(successful) + u64::from(failed) + u64::from(skipped);
     println!("{}", rust_i18n::t!("main.statistics"));
     println!(
         "{}",
@@ -484,12 +317,11 @@ fn print_statistics(
     );
     println!("{}", rust_i18n::t!("main.database_updates_complete"));
     if failed > 0 {
-        print_error_recommendations()?;
+        print_error_recommendations();
     }
-    Ok(())
 }
 
-fn print_error_recommendations() -> Result<(), Box<dyn std::error::Error>> {
+fn print_error_recommendations() {
     println!("{}", rust_i18n::t!("main.error_recommendations"));
     println!("• {}", rust_i18n::t!("recommendation.check_service_status"));
     println!("• {}", rust_i18n::t!("recommendation.check_file_sizes"));
@@ -504,5 +336,4 @@ fn print_error_recommendations() -> Result<(), Box<dyn std::error::Error>> {
         rust_i18n::t!("recommendation.check_immich_structure")
     );
     println!("• {}", rust_i18n::t!("recommendation.check_ai_servers"));
-    Ok(())
 }

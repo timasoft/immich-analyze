@@ -1,5 +1,7 @@
-use clap::Parser;
-use std::{num::NonZeroU32, path::Path, sync::Arc};
+#![warn(non_ascii_idents)]
+
+use clap::Parser as _;
+use std::{path::Path, sync::Arc};
 use tokio_postgres::NoTls;
 
 mod args;
@@ -8,10 +10,9 @@ mod data_access;
 mod database;
 mod error;
 mod file_processing;
+mod host_manager;
 mod immich_api;
-mod llamacpp;
 mod monitor;
-mod ollama;
 mod progress;
 mod prompt_enricher;
 mod utils;
@@ -50,10 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (pg_client, connection) =
                 tokio_postgres::connect(&args.postgres_url, NoTls).await?;
             tokio::spawn(async move {
-                if let Err(e) = connection.await {
+                if let Err(err) = connection.await {
                     eprintln!(
                         "{}",
-                        rust_i18n::t!("error.postgres_connection_error", error = e.to_string())
+                        rust_i18n::t!("error.postgres_connection_error", error = err.to_string())
                     );
                 }
             });
@@ -62,10 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "{}",
                 rust_i18n::t!("main.postgres_connected", url = args.postgres_url)
             );
-            if let Err(e) = database::check_database_connection(&pg_client_arc).await {
+            if let Err(err) = database::check_database_connection(&pg_client_arc).await {
                 eprintln!(
                     "{}",
-                    rust_i18n::t!("error.database_connection_failed", error = e.to_string())
+                    rust_i18n::t!("error.database_connection_failed", error = err.to_string())
                 );
                 std::process::exit(1);
             }
@@ -111,15 +112,15 @@ async fn run_combined_mode(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.combined_mode_activated"));
     let batch_handle = {
-        let args = args.clone();
-        let data_access = data_access.clone();
-        let locale = locale.to_string();
+        let args_clone = args.clone();
+        let data_access_clone = data_access.clone();
+        let locale_clone = locale.to_owned();
         tokio::spawn(async move {
             println!("{}", rust_i18n::t!("main.processing_existing_images"));
-            if let Err(e) = run_batch_mode(&args, &data_access, &locale).await {
+            if let Err(err) = run_batch_mode(&args_clone, &data_access_clone, &locale_clone).await {
                 eprintln!(
                     "{}",
-                    rust_i18n::t!("error.batch_mode_failed", error = e.to_string())
+                    rust_i18n::t!("error.batch_mode_failed", error = err.to_string())
                 );
             }
             println!("{}", rust_i18n::t!("main.batch_mode_completed"));
@@ -130,7 +131,7 @@ async fn run_combined_mode(
         rust_i18n::t!("main.monitor_mode_started_in_background")
     );
     run_monitor_mode(&args, data_access, locale).await?;
-    let _ = batch_handle.await;
+    let _: Result<(), tokio::task::JoinError> = batch_handle.await;
     Ok(())
 }
 
@@ -146,23 +147,7 @@ async fn run_monitor_mode(
         OverwritePolicy::MissingAi => println!("{}", rust_i18n::t!("main.missing_ai_enabled")),
         OverwritePolicy::None => {}
     }
-    let monitor_config = MonitorConfig {
-        file_write_timeout: args.file_write_timeout,
-        file_check_interval: args.file_check_interval,
-        event_cooldown: args.event_cooldown,
-        timeout: args.timeout,
-        lang: locale.to_string(),
-        overwrite_policy,
-        hosts: args.hosts.clone(),
-        interface: args.interface,
-        api_key: args.api_key.clone(),
-        unavailable_duration: args.unavailable_duration,
-        api_poll_interval: args.api_poll_interval,
-        max_retries: NonZeroU32::new(args.max_retries),
-        retry_delay_seconds: args.retry_delay_seconds,
-        enrich_prompt: args.enrich_prompt,
-        preserve_human: args.preserve_human,
-    };
+    let monitor_config = MonitorConfig::from_args(args, locale);
     monitor_folder(
         &args.model_name,
         data_access.clone(),
@@ -224,7 +209,7 @@ async fn run_batch_mode(
         process_files_concurrently(assets, &http_client, data_access, args, locale, progress).await;
 
     if !args.no_final_output {
-        file_processing::display_results(&results, args.max_concurrent > 1)?;
+        file_processing::display_results(&results, args.max_concurrent > 1);
     }
     Ok(())
 }
