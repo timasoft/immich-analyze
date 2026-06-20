@@ -1,0 +1,24 @@
+too-many-lines-threshold = 450
+
+# Ban std::fs in favor of tokio::fs for async compatibility
+disallowed-methods = [
+    { path = "std::fs::read_dir",         reason = "use tokio::fs::read_dir instead" },
+    { path = "std::fs::read",             reason = "use tokio::fs::read instead" },
+    { path = "std::fs::read_to_string",   reason = "use tokio::fs::read_to_string instead" },
+    { path = "std::fs::write",            reason = "use tokio::fs::write instead" },
+    { path = "std::fs::create_dir",       reason = "use tokio::fs::create_dir instead" },
+    { path = "std::fs::create_dir_all",   reason = "use tokio::fs::create_dir_all instead" },
+    { path = "std::fs::remove_file",      reason = "use tokio::fs::remove_file instead" },
+    { path = "std::fs::remove_dir",       reason = "use tokio::fs::remove_dir instead" },
+    { path = "std::fs::remove_dir_all",   reason = "use tokio::fs::remove_dir_all instead" },
+    { path = "std::fs::rename",           reason = "use tokio::fs::rename instead" },
+    { path = "std::fs::copy",             reason = "use tokio::fs::copy instead" },
+    { path = "std::fs::hard_link",        reason = "use tokio::fs::hard_link instead" },
+    { path = "std::fs::canonicalize",     reason = "use tokio::fs::canonicalize instead" },
+    { path = "std::fs::symlink_metadata", reason = "use tokio::fs::symlink_metadata instead" },
+    { path = "std::fs::set_permissions",  reason = "use tokio::fs::set_permissions instead" },
+    { path = "std::fs::metadata",         reason = "use tokio::fs::metadata instead" },
+    { path = "std::fs::File::open",       reason = "use tokio::fs::File::open instead" },
+    { path = "std::fs::File::create",     reason = "use tokio::fs::File::create instead" },
+    { path = "std::fs::OpenOptions::new", reason = "use tokio::fs::OpenOptions::new instead" },
+]

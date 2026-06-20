@@ -2,10 +2,11 @@ use crate::{
     args::OverwritePolicy, data_access::DataAccess, database::ImageAnalysisResult,
     error::ImageAnalysisError,
 };
-use base64::{Engine, engine::general_purpose::STANDARD};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use log::warn;
 use regex::Regex;
-use std::{borrow::Cow, io::Read, path::Path, str::FromStr, sync::OnceLock};
+use std::{borrow::Cow, path::Path, str::FromStr as _, sync::OnceLock};
+use tokio::io::AsyncReadExt as _;
 use uuid::Uuid;
 
 /// Get system locale from environment variables
@@ -14,9 +15,10 @@ pub fn get_system_locale() -> String {
         .or_else(|_| std::env::var("LC_MESSAGES"))
         .or_else(|_| std::env::var("LANG"))
         .map_or_else(
-            |_| "en".to_string(),
-            |s| {
-                s.split('.')
+            |_| "en".to_owned(),
+            |locale_str| {
+                locale_str
+                    .split('.')
                     .next()
                     .unwrap_or("en")
                     .split('_')
@@ -40,29 +42,29 @@ pub fn get_ai_block_pattern() -> &'static Regex {
 
 pub fn extract_uuid_from_preview_filename(filename: &str) -> Result<Uuid, ImageAnalysisError> {
     let preview_pattern = PREVIEW_PATTERN.get_or_init(|| {
-        Regex::new(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[-_]preview")
+        Regex::new("([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[-_]preview")
             .expect("Invalid preview filename regex")
     });
     let uuid_pattern = UUID_PATTERN.get_or_init(|| {
-        Regex::new(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+        Regex::new("([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
             .expect("Invalid uuid regex")
     });
     if let Some(captures) = preview_pattern.captures(filename)
         && let Some(uuid_str) = captures.get(1)
     {
         return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
-            filename: filename.to_string(),
+            filename: filename.to_owned(),
         });
     }
     if let Some(captures) = uuid_pattern.captures(filename)
         && let Some(uuid_str) = captures.get(1)
     {
         return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
-            filename: filename.to_string(),
+            filename: filename.to_owned(),
         });
     }
     Err(ImageAnalysisError::InvalidUuid {
-        filename: filename.to_string(),
+        filename: filename.to_owned(),
     })
 }
 
@@ -70,31 +72,34 @@ pub fn is_preview_filename(filename: &str) -> bool {
     filename.contains("_preview.") || filename.contains("-preview.")
 }
 
-pub fn read_image_as_base64(
+pub async fn read_image_as_base64(
     image_path: &Path,
     filename: &str,
 ) -> Result<String, ImageAnalysisError> {
-    let metadata =
-        std::fs::metadata(image_path).map_err(|e| ImageAnalysisError::ProcessingError {
-            filename: filename.to_string(),
-            error: e.to_string(),
-        })?;
+    let metadata = tokio::fs::metadata(image_path).await.map_err(|err| {
+        ImageAnalysisError::ProcessingError {
+            filename: filename.to_owned(),
+            error: err.to_string(),
+        }
+    })?;
     if metadata.len() == 0 {
         return Err(ImageAnalysisError::EmptyFile {
-            filename: filename.to_string(),
+            filename: filename.to_owned(),
         });
     }
-    let mut image_file =
-        std::fs::File::open(image_path).map_err(|e| ImageAnalysisError::ProcessingError {
-            filename: filename.to_string(),
-            error: e.to_string(),
-        })?;
+    let mut image_file = tokio::fs::File::open(image_path).await.map_err(|err| {
+        ImageAnalysisError::ProcessingError {
+            filename: filename.to_owned(),
+            error: err.to_string(),
+        }
+    })?;
     let mut image_data = Vec::new();
     image_file
         .read_to_end(&mut image_data)
-        .map_err(|e| ImageAnalysisError::ProcessingError {
-            filename: filename.to_string(),
-            error: e.to_string(),
+        .await
+        .map_err(|err| ImageAnalysisError::ProcessingError {
+            filename: filename.to_owned(),
+            error: err.to_string(),
         })?;
     Ok(STANDARD.encode(&image_data))
 }
@@ -116,7 +121,7 @@ pub async fn check_overwrite_policy(
         OverwritePolicy::None => {
             if data_access.has_description(asset_id).await? {
                 return Err(ImageAnalysisError::AlreadyProcessed {
-                    filename: filename.to_string(),
+                    filename: filename.to_owned(),
                 });
             }
             Ok(None)
@@ -125,13 +130,13 @@ pub async fn check_overwrite_policy(
             Ok(Some(desc)) => {
                 if get_ai_block_pattern().is_match(&desc) {
                     return Err(ImageAnalysisError::AlreadyProcessed {
-                        filename: filename.to_string(),
+                        filename: filename.to_owned(),
                     });
                 }
                 Ok(Some(desc))
             }
             Ok(None) => Ok(None),
-            Err(e) => Err(e),
+            Err(err) => Err(err),
         },
     }
 }
@@ -153,12 +158,12 @@ pub async fn build_final_description(
         None => match data_access.get_description(&analysis.asset_id).await {
             Ok(Some(desc)) => desc,
             Ok(None) => ai_wrapped.clone(),
-            Err(e) => {
+            Err(err) => {
                 warn!(
                     "Failed to get existing description for asset {}, cannot preserve human text: {}",
-                    analysis.asset_id, e
+                    analysis.asset_id, err
                 );
-                return Err(e);
+                return Err(err);
             }
         },
     };
@@ -168,7 +173,7 @@ pub async fn build_final_description(
         Ok(re
             .replace(&existing, format!("\n{ai_wrapped}\n"))
             .trim()
-            .to_string())
+            .to_owned())
     } else {
         Ok(format!("{}\n\n{}", existing.trim(), ai_wrapped))
     }
@@ -204,17 +209,19 @@ pub fn determine_locale(
         .iter()
         .any(|loc| loc.as_ref().eq_ignore_ascii_case(system_locale))
     {
-        return system_locale.to_string();
+        return system_locale.to_owned();
     }
-    "en".to_string()
+    "en".to_owned()
 }
 
-pub fn validate_args(args: &crate::args::Args) {
+pub fn validate_args(args: &crate::args::Args) -> Result<(), Box<dyn std::error::Error>> {
     if args.combined && args.monitor {
         eprintln!("{}", rust_i18n::t!("error.incompatible_flags"));
         eprintln!("{}", rust_i18n::t!("error.combined_monitor_conflict"));
         eprintln!("{}", rust_i18n::t!("error.use_combined_or_monitor"));
-        std::process::exit(1);
+        Err("incompatible flags".into())
+    } else {
+        Ok(())
     }
 }
 

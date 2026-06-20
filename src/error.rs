@@ -36,6 +36,8 @@ pub enum ImageAnalysisError {
     InvalidConfig { error: String },
     #[error("HTTP client error: {error}")]
     HttpClientError { error: String },
+    #[error("IO error for {path}: {error}")]
+    IoError { path: String, error: String },
 }
 
 impl ImageAnalysisError {
@@ -43,10 +45,10 @@ impl ImageAnalysisError {
     #[must_use]
     pub fn user_message(&self) -> String {
         match self {
-            ImageAnalysisError::EmptyFile { filename } => {
+            Self::EmptyFile { filename } => {
                 rust_i18n::t!("error.empty_file", filename = filename).to_string()
             }
-            ImageAnalysisError::HttpError {
+            Self::HttpError {
                 status,
                 filename,
                 response,
@@ -57,55 +59,54 @@ impl ImageAnalysisError {
                 response = response
             )
             .to_string(),
-            ImageAnalysisError::EmptyResponse { filename } => {
+            Self::EmptyResponse { filename } => {
                 rust_i18n::t!("error.empty_response", filename = filename).to_string()
             }
-            ImageAnalysisError::JsonParsing { filename, error } => rust_i18n::t!(
+            Self::JsonParsing { filename, error } => rust_i18n::t!(
                 "error.json_parsing_with_details",
                 filename = filename,
                 error = error
             )
             .to_string(),
-            ImageAnalysisError::FileWriteTimeout { filename, timeout } => rust_i18n::t!(
+            Self::FileWriteTimeout { filename, timeout } => rust_i18n::t!(
                 "error.file_write_timeout_with_details",
                 filename = filename,
                 timeout = timeout.to_string()
             )
             .to_string(),
-            ImageAnalysisError::DatabaseError { error } => {
+            Self::DatabaseError { error } => {
                 rust_i18n::t!("error.database_error", error = error).to_string()
             }
-            ImageAnalysisError::AllHostsUnavailable => {
-                rust_i18n::t!("error.all_hosts_unavailable").to_string()
-            }
-            ImageAnalysisError::AiRequestTimeout => {
-                rust_i18n::t!("error.ai_request_timeout").to_string()
-            }
-            ImageAnalysisError::ProcessingError { filename, error } => format!(
+            Self::AllHostsUnavailable => rust_i18n::t!("error.all_hosts_unavailable").to_string(),
+            Self::AiRequestTimeout => rust_i18n::t!("error.ai_request_timeout").to_string(),
+            Self::ProcessingError { filename, error } => format!(
                 "{}\n{}",
                 error,
                 rust_i18n::t!("error.critical_processing_error", filename = filename),
             ),
-            ImageAnalysisError::AlreadyProcessed { filename } => {
+            Self::AlreadyProcessed { filename } => {
                 rust_i18n::t!("main.file_already_in_database", filename = filename).to_string()
             }
-            ImageAnalysisError::InvalidUuid { filename } => format!(
+            Self::InvalidUuid { filename } => format!(
                 "{}\n{}",
                 rust_i18n::t!("error.critical_processing_error", filename = filename),
                 self
             ),
-            ImageAnalysisError::InvalidImmichStructure { error }
-            | ImageAnalysisError::InvalidConfig { error }
-            | ImageAnalysisError::HttpClientError { error } => format!(
+            Self::InvalidImmichStructure { error }
+            | Self::InvalidConfig { error }
+            | Self::HttpClientError { error } => format!(
                 "{}\n{}",
                 rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
                 error
             ),
-            ImageAnalysisError::InvalidApiKey => format!(
+            Self::InvalidApiKey => format!(
                 "{}\n{}",
                 rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
                 self
             ),
+            Self::IoError { path, error } => {
+                rust_i18n::t!("error.io_error", path = path, error = error).to_string()
+            }
         }
     }
 
@@ -114,25 +115,26 @@ impl ImageAnalysisError {
     pub const fn is_retryable(&self) -> bool {
         match self {
             // Retryable errors
-            ImageAnalysisError::HttpError { status, .. } => {
+            Self::HttpError { status, .. } => {
                 *status == 0 || (*status >= 500 && *status <= 599) || *status == 429
             }
-            ImageAnalysisError::AllHostsUnavailable
-            | ImageAnalysisError::AiRequestTimeout
-            | ImageAnalysisError::HttpClientError { .. } => true,
+            Self::AllHostsUnavailable | Self::AiRequestTimeout | Self::HttpClientError { .. } => {
+                true
+            }
 
             // Non-retryable errors
-            ImageAnalysisError::EmptyFile { .. }
-            | ImageAnalysisError::InvalidUuid { .. }
-            | ImageAnalysisError::InvalidImmichStructure { .. }
-            | ImageAnalysisError::InvalidApiKey
-            | ImageAnalysisError::InvalidConfig { .. }
-            | ImageAnalysisError::EmptyResponse { .. }
-            | ImageAnalysisError::JsonParsing { .. }
-            | ImageAnalysisError::AlreadyProcessed { .. }
-            | ImageAnalysisError::DatabaseError { .. }
-            | ImageAnalysisError::ProcessingError { .. }
-            | ImageAnalysisError::FileWriteTimeout { .. } => false,
+            Self::EmptyFile { .. }
+            | Self::InvalidUuid { .. }
+            | Self::InvalidImmichStructure { .. }
+            | Self::InvalidApiKey
+            | Self::InvalidConfig { .. }
+            | Self::EmptyResponse { .. }
+            | Self::JsonParsing { .. }
+            | Self::AlreadyProcessed { .. }
+            | Self::DatabaseError { .. }
+            | Self::ProcessingError { .. }
+            | Self::FileWriteTimeout { .. }
+            | Self::IoError { .. } => false,
         }
     }
 }

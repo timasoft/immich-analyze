@@ -17,7 +17,7 @@ pub struct MonitorConfig {
     pub interface: Interface,
     pub api_key: Option<String>,
     pub unavailable_duration: u64,
-    pub api_poll_interval: u64,
+    pub api_poll_interval: u32,
     pub max_retries: Option<NonZeroU32>,
     pub retry_delay_seconds: u64,
     pub enrich_prompt: bool,

@@ -1,14 +1,14 @@
 use crate::data_access::DataAccessMode;
 use clap::{Parser, ValueEnum};
 
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Default)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Interface {
     #[default]
     Ollama,
     Llamacpp,
 }
 
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Default)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OverwritePolicy {
     /// Skip any asset that already has a description
     #[default]
@@ -21,6 +21,7 @@ pub enum OverwritePolicy {
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
+#[expect(clippy::struct_excessive_bools)]
 pub struct Args {
     /// Enable folder monitoring mode
     #[arg(short, long)]
@@ -67,7 +68,7 @@ pub struct Args {
     pub immich_api_keys: Vec<String>,
     /// API poll interval in seconds (for Immich API mode)
     #[arg(long, default_value_t = 10)]
-    pub api_poll_interval: u64,
+    pub api_poll_interval: u32,
     /// Ollama model name for image analysis
     #[arg(long, default_value = "qwen3-vl:4b-thinking-q4_K_M")]
     pub model_name: String,

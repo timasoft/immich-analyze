@@ -23,13 +23,16 @@ pub async fn get_asset_description(
     match client.query_opt(query, &[&asset_id]).await {
         Ok(Some(row)) => Ok(row.get::<_, Option<String>>(0)),
         Ok(None) => Ok(None),
-        Err(e) => {
+        Err(err) => {
             eprintln!(
                 "{}",
-                rust_i18n::t!("database.error_checking_description", error = e.to_string())
+                rust_i18n::t!(
+                    "database.error_checking_description",
+                    error = err.to_string()
+                )
             );
             Err(ImageAnalysisError::DatabaseError {
-                error: e.to_string(),
+                error: err.to_string(),
             })
         }
     }
@@ -50,13 +53,16 @@ pub async fn asset_has_description(
     ";
     match client.query_one(query, &[&asset_id]).await {
         Ok(row) => Ok(row.get(0)),
-        Err(e) => {
+        Err(err) => {
             eprintln!(
                 "{}",
-                rust_i18n::t!("database.error_checking_description", error = e.to_string())
+                rust_i18n::t!(
+                    "database.error_checking_description",
+                    error = err.to_string()
+                )
             );
             Err(ImageAnalysisError::DatabaseError {
-                error: e.to_string(),
+                error: err.to_string(),
             })
         }
     }
@@ -105,18 +111,18 @@ pub async fn update_or_create_asset_description(
             );
             Ok(())
         }
-        Err(e) => {
+        Err(err) => {
             eprintln!(
                 "{}\n{}",
                 rust_i18n::t!(
                     "database.insert_error",
                     asset_id = asset_id,
-                    error = e.to_string()
+                    error = err.to_string()
                 ),
                 rust_i18n::t!("database.sql_query_details", query = upsert_query)
             );
             Err(ImageAnalysisError::DatabaseError {
-                error: e.to_string(),
+                error: err.to_string(),
             })
         }
     }
@@ -129,15 +135,15 @@ pub async fn check_database_connection(client: &PgClient) -> Result<bool, ImageA
             println!("{}", rust_i18n::t!("database.connection_success"));
             Ok(true)
         }
-        Ok(Err(e)) => {
+        Ok(Err(err)) => {
             eprintln!(
                 "{}",
-                rust_i18n::t!("error.database_query_failed", error = e.to_string())
+                rust_i18n::t!("error.database_query_failed", error = err.to_string())
             );
             Err(ImageAnalysisError::DatabaseError {
                 error: format!(
                     "{}",
-                    rust_i18n::t!("error.query_failed_error", error = e.to_string())
+                    rust_i18n::t!("error.query_failed_error", error = err.to_string())
                 ),
             })
         }

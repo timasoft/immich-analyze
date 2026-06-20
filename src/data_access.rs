@@ -73,7 +73,8 @@ impl DataAccess {
                 client: _,
                 immich_root,
             } => {
-                let preview_files = crate::file_processing::get_immich_preview_files(immich_root)?;
+                let preview_files =
+                    crate::file_processing::get_immich_preview_files(immich_root).await?;
 
                 let mut assets = Vec::new();
                 for file_path in preview_files {
@@ -82,13 +83,8 @@ impl DataAccess {
                         .and_then(|n| n.to_str())
                         .unwrap_or("unknown");
 
-                    match extract_uuid_from_preview_filename(filename) {
-                        Ok(asset_id) => {
-                            assets.push(AssetRef { id: asset_id });
-                        }
-                        Err(_) => {
-                            continue;
-                        }
+                    if let Ok(asset_id) = extract_uuid_from_preview_filename(filename) {
+                        assets.push(AssetRef { id: asset_id });
                     }
                 }
                 Ok(assets)
@@ -116,14 +112,14 @@ impl DataAccess {
     pub async fn get_preview_path(&self, asset_id: &Uuid) -> Result<PathBuf, ImageAnalysisError> {
         match self {
             Self::Database { immich_root, .. } => {
-                Self::find_preview_file_in_thumbs(immich_root, asset_id)
+                Self::find_preview_file_in_thumbs(immich_root, asset_id).await
             }
             Self::ImmichApi { provider } => provider.get_preview_path(asset_id).await,
         }
     }
 
     /// Helper: find preview file in thumbs directory tree for database mode.
-    fn find_preview_file_in_thumbs(
+    async fn find_preview_file_in_thumbs(
         immich_root: &Path,
         asset_id: &Uuid,
     ) -> Result<PathBuf, ImageAnalysisError> {
@@ -131,9 +127,9 @@ impl DataAccess {
         let mut stack = vec![thumbs_dir];
 
         while let Some(current_dir) = stack.pop() {
-            match std::fs::read_dir(&current_dir) {
-                Ok(entries) => {
-                    for entry in entries.filter_map(|e| e.ok()) {
+            match tokio::fs::read_dir(&current_dir).await {
+                Ok(mut entries) => {
+                    while let Ok(Some(entry)) = entries.next_entry().await {
                         let path = entry.path();
                         if path.is_dir() {
                             stack.push(path);
@@ -152,15 +148,15 @@ impl DataAccess {
                         }
                     }
                 }
-                Err(e) => {
-                    log::error!("Error reading directory {}: {}", current_dir.display(), e);
+                Err(err) => {
+                    log::error!("Error reading directory {}: {}", current_dir.display(), err);
                 }
             }
         }
 
         Err(ImageAnalysisError::ProcessingError {
             filename: asset_id.to_string(),
-            error: "Preview file not found in thumbs directory".to_string(),
+            error: "Preview file not found in thumbs directory".to_owned(),
         })
     }
 
@@ -216,9 +212,9 @@ impl DataAccess {
             Self::ImmichApi { provider } => match provider.get_asset_metadata(asset_id).await {
                 Ok(metadata) => Ok(metadata
                     .exif_info
-                    .and_then(|e| e.description)
-                    .filter(|d| !d.is_empty())),
-                Err(e) => Err(e),
+                    .and_then(|exif| exif.description)
+                    .filter(|desc| !desc.is_empty())),
+                Err(err) => Err(err),
             },
         }
     }
@@ -247,8 +243,16 @@ impl DataAccess {
 
     pub async fn cleanup_preview(&self, path: &PathBuf) -> Result<(), ImageAnalysisError> {
         if matches!(self, Self::ImmichApi { .. }) {
-            tokio::fs::remove_file(path).await.ok();
+            match tokio::fs::remove_file(path).await {
+                Ok(()) => Ok(()),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(err) => Err(ImageAnalysisError::IoError {
+                    path: path.display().to_string(),
+                    error: err.to_string(),
+                }),
+            }
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 }

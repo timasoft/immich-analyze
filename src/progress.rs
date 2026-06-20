@@ -16,25 +16,33 @@ impl SimpleProgress {
             current: 0,
             start_time: Instant::now(),
             current_message: String::new(),
-            finish_message: finish_message.to_string(),
+            finish_message: finish_message.to_owned(),
         }
     }
     pub fn set_message(&mut self, message: &str) {
-        self.current_message = message.to_string();
+        message.clone_into(&mut self.current_message);
         self.display();
     }
     pub fn inc(&mut self) {
-        self.current += 1;
+        self.current = self.current.saturating_add(1);
         self.display();
     }
     pub fn set_message_and_inc(&mut self, message: &str) {
-        self.current_message = message.to_string();
+        message.clone_into(&mut self.current_message);
         self.inc();
     }
     pub fn display(&self) {
-        let progress = (self.current as f64 / self.total as f64 * 100.0) as u8;
+        let progress: u8 = self
+            .current
+            .saturating_mul(100)
+            .checked_div(self.total)
+            .unwrap_or(0)
+            .min(100)
+            .try_into()
+            .unwrap_or(100);
         let elapsed = self.start_time.elapsed().as_secs();
-        let eta = (elapsed * (self.total - self.current))
+        let eta = elapsed
+            .saturating_mul(self.total.saturating_sub(self.current))
             .checked_div(self.current)
             .unwrap_or(0);
         if progress >= 100 {

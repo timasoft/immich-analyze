@@ -10,10 +10,10 @@ use crate::{
         is_preview_filename,
     },
 };
-use log::error;
+use log::{error, warn};
 use notify::{
     event::ModifyKind,
-    {Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher},
+    {Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _},
 };
 use reqwest::Client;
 use std::{
@@ -45,22 +45,22 @@ pub async fn process_new_file(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
-        .to_string();
+        .to_owned();
     println!(
         "{}",
         rust_i18n::t!("monitor.file_detected", filename = filename)
     );
     let start_time = Instant::now();
     let mut last_size = 0;
-    let mut stable_count = 0;
+    let mut stable_count = 0_u8;
     let timeout_duration = Duration::from_secs(file_write_timeout);
     let check_interval = Duration::from_millis(file_check_interval);
     // Wait for file to be stable
     while start_time.elapsed() < timeout_duration {
-        if let Ok(metadata) = std::fs::metadata(preview_path) {
+        if let Ok(metadata) = tokio::fs::metadata(preview_path).await {
             let current_size = metadata.len();
             if current_size == last_size && current_size > 0 {
-                stable_count += 1;
+                stable_count = stable_count.saturating_add(1);
                 if stable_count >= 3 {
                     break;
                 }
@@ -95,12 +95,12 @@ pub async fn process_new_file(
                 );
                 return Ok(());
             }
-            Err(e) => return Err(e),
+            Err(err) => return Err(err),
         };
 
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await
-        .unwrap_or_else(|| ctx.prompt.to_string());
+        .unwrap_or_else(|| ctx.prompt.to_owned());
 
     let result = ctx
         .host_manager
@@ -131,9 +131,9 @@ pub async fn process_new_file(
             );
             Ok(())
         }
-        Err(e) => {
-            eprintln!("{}", e.user_message());
-            Err(e)
+        Err(err) => {
+            eprintln!("{}", err.user_message());
+            Err(err)
         }
     }
 }
@@ -159,7 +159,6 @@ pub async fn monitor_folder(
     let (stop_tx, mut stop_rx) = tokio_mpsc::channel(1);
     // Handle CTRL-C signal
     tokio::spawn({
-        let stop_tx = stop_tx.clone();
         let lang_clone = config.lang.clone();
         async move {
             rust_i18n::set_locale(&lang_clone);
@@ -175,7 +174,7 @@ pub async fn monitor_folder(
                     println!("{}", rust_i18n::t!("monitor.stop_signal_received", signal = "SIGINT"));
                 }
             }
-            let _ = stop_tx.send(()).await;
+            let _: Result<(), tokio_mpsc::error::SendError<()>> = stop_tx.send(()).await;
         }
     });
 
@@ -184,7 +183,7 @@ pub async fn monitor_folder(
         config.hosts.clone(),
         config.interface,
         http_client.clone(),
-        model_name.to_string(),
+        model_name.to_owned(),
         config.timeout,
         config.max_retries,
         Duration::from_secs(config.retry_delay_seconds),
@@ -194,7 +193,7 @@ pub async fn monitor_folder(
 
     let bg_ctx = BackgroundCtx {
         data_access: data_access.clone(),
-        prompt: prompt.to_string(),
+        prompt: prompt.to_owned(),
         host_manager,
     };
 
@@ -260,9 +259,9 @@ pub async fn monitor_folder(
             println!("{}", rust_i18n::t!("monitor.stop_instructions"));
 
             let processing_assets = Arc::new(Mutex::new(HashSet::<Uuid>::new()));
-            let mut known_assets: HashSet<Uuid> = HashSet::with_capacity(65_536);
+            let mut known_assets: HashSet<Uuid> = HashSet::with_capacity(1 << 16);
             let mut poll_interval =
-                tokio::time::interval(Duration::from_secs(config.api_poll_interval));
+                tokio::time::interval(Duration::from_secs(u64::from(config.api_poll_interval)));
             poll_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
             let mut is_first_poll = true;
@@ -308,15 +307,16 @@ fn handle_fs_events(
 ) {
     while let Ok(event) = event_rx.try_recv() {
         match event {
-            Ok(event) => {
-                if let EventKind::Create(_) | EventKind::Modify(ModifyKind::Data(_)) = event.kind
-                    && let Some(path) = event.paths.first()
+            Ok(event_val) => {
+                if let EventKind::Create(_) | EventKind::Modify(ModifyKind::Data(_)) =
+                    event_val.kind
+                    && let Some(path_buf) = event_val.paths.first()
                 {
-                    let path = path.as_path();
+                    let path = path_buf.as_path();
                     if path.is_file()
-                        && let Some(filename) = path.file_name().and_then(|n| n.to_str())
+                        && let Some(filename_str) = path.file_name().and_then(|n| n.to_str())
                     {
-                        let filename = filename.to_string();
+                        let filename = filename_str.to_owned();
                         if !is_preview_filename(&filename) {
                             continue;
                         }
@@ -394,8 +394,8 @@ fn handle_fs_events(
                                     .expect("Failed to lock processing files");
                                 files.remove(&filename_clone);
                             }
-                            if let Err(e) = result {
-                                if let ImageAnalysisError::AlreadyProcessed { filename: _ } = e {
+                            if let Err(err) = result {
+                                if let ImageAnalysisError::AlreadyProcessed { filename: _ } = err {
                                     // Expected when ignoring existing files
                                 } else {
                                     error!("Background processing error for: {filename_clone}");
@@ -405,8 +405,8 @@ fn handle_fs_events(
                     }
                 }
             }
-            Err(e) => {
-                error!("Filesystem monitoring error: {e}");
+            Err(err) => {
+                error!("Filesystem monitoring error: {err}");
             }
         }
     }
@@ -424,10 +424,11 @@ async fn handle_api_poll(
     let assets_result = if *is_first_poll {
         provider.get_assets().await
     } else {
-        let buffer_secs = config.api_poll_interval * 2;
+        #[expect(clippy::arithmetic_side_effects)]
+        let buffer_secs = i64::from(config.api_poll_interval) * 2;
         let since_time = last_poll_time
             .unwrap_or_else(chrono::Utc::now)
-            .checked_sub_signed(chrono::Duration::seconds(buffer_secs as i64))
+            .checked_sub_signed(chrono::Duration::seconds(buffer_secs))
             .unwrap_or_else(chrono::Utc::now);
         let since_iso = since_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         provider.get_assets_since_timestamp(&since_iso).await
@@ -483,8 +484,8 @@ async fn handle_api_poll(
                         let preview_path =
                             match bg_ctx_clone.data_access.get_preview_path(&asset_id).await {
                                 Ok(path) => path,
-                                Err(e) => {
-                                    error!("Failed to get preview for asset {asset_id}: {e}");
+                                Err(err) => {
+                                    error!("Failed to get preview for asset {asset_id}: {err}");
                                     processing_assets_clone
                                         .lock()
                                         .expect("Failed to lock processing assets")
@@ -510,10 +511,13 @@ async fn handle_api_poll(
                         )
                         .await;
 
-                        let _ = bg_ctx_clone
+                        if let Err(err) = bg_ctx_clone
                             .data_access
                             .cleanup_preview(&preview_path)
-                            .await;
+                            .await
+                        {
+                            warn!("Failed to cleanup preview: {err}");
+                        }
 
                         {
                             let mut processing = processing_assets_clone
@@ -522,8 +526,8 @@ async fn handle_api_poll(
                             processing.remove(&asset_id);
                         }
 
-                        if let Err(e) = result {
-                            if let ImageAnalysisError::AlreadyProcessed { .. } = e {
+                        if let Err(err) = result {
+                            if let ImageAnalysisError::AlreadyProcessed { .. } = err {
                                 // Expected when ignoring existing files
                             } else {
                                 error!("Background processing error for: {asset_id}");
@@ -534,8 +538,8 @@ async fn handle_api_poll(
                 *last_poll_time = Some(chrono::Utc::now());
             }
         }
-        Err(e) => {
-            error!("API polling failed: {e}");
+        Err(err) => {
+            error!("API polling failed: {err}");
         }
     }
 }

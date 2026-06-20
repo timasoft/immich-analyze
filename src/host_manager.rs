@@ -38,15 +38,15 @@ impl Interface {
         match self {
             Self::Ollama => json_value
                 .get("message")
-                .and_then(|m| m.get("content"))
-                .and_then(|c| c.as_str()),
+                .and_then(|msg| msg.get("content"))
+                .and_then(|content| content.as_str()),
             Self::Llamacpp => json_value
                 .get("choices")
-                .and_then(|c| c.as_array())
-                .and_then(|c| c.first())
-                .and_then(|c| c.get("message"))
-                .and_then(|m| m.get("content"))
-                .and_then(|c| c.as_str()),
+                .and_then(|choices| choices.as_array())
+                .and_then(|choices| choices.first())
+                .and_then(|choice| choice.get("message"))
+                .and_then(|msg| msg.get("content"))
+                .and_then(|content| content.as_str()),
         }
     }
 
@@ -104,7 +104,7 @@ pub struct HostManager {
 }
 
 impl HostManager {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         hosts: Vec<String>,
         interface: Interface,
@@ -146,11 +146,10 @@ impl HostManager {
         unavailable
             .retain(|_, timestamp| now.duration_since(*timestamp) < self.unavailable_duration);
 
-        if unavailable.len() < original_count {
-            debug!(
-                "Cleaned up {} expired unavailable hosts",
-                original_count - unavailable.len()
-            );
+        if let Some(removed_count) = original_count.checked_sub(unavailable.len())
+            && removed_count > 0
+        {
+            debug!("Cleaned up {removed_count} expired unavailable hosts");
         }
 
         debug!(
@@ -185,7 +184,7 @@ impl HostManager {
         self.unavailable_hosts
             .lock()
             .expect("unavailable_hosts mutex poisoned")
-            .insert(host.to_string(), Instant::now());
+            .insert(host.to_owned(), Instant::now());
         println!(
             "{}",
             rust_i18n::t!("host_manager.host_marked_unavailable", host = host)
@@ -201,7 +200,7 @@ impl HostManager {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
-            .to_string();
+            .to_owned();
 
         info!(
             "Starting {:?} analysis for image: {}",
@@ -210,7 +209,7 @@ impl HostManager {
         debug!("Model: {}, Timeout: {}s", self.model_name, self.timeout);
 
         let asset_id = extract_uuid_from_preview_filename(&filename)?;
-        let base64_image = read_image_as_base64(image_path, &filename)?;
+        let base64_image = read_image_as_base64(image_path, &filename).await?;
 
         let request_body =
             self.interface
@@ -221,14 +220,14 @@ impl HostManager {
         let mut attempt: u32 = 0;
         let mut last_error = None;
         loop {
-            attempt += 1;
+            attempt = attempt.saturating_add(1);
 
             if self.max_retries.is_some() || attempt > 1 {
                 info!(
                     "Retry attempt {}/{} for image {}",
                     attempt,
                     self.max_retries
-                        .map_or_else(|| "∞".to_string(), |m| m.to_string()),
+                        .map_or_else(|| "∞".to_owned(), |max| max.to_string()),
                     filename
                 );
             }
@@ -237,9 +236,12 @@ impl HostManager {
             for _ in 0..self.hosts.len() {
                 let host = match self.get_available_host() {
                     Ok(host) => host,
-                    Err(e) => {
-                        error!("Failed to get available {:?} host: {:?}", self.interface, e);
-                        return Err(e);
+                    Err(err) => {
+                        error!(
+                            "Failed to get available {:?} host: {:?}",
+                            self.interface, err
+                        );
+                        return Err(err);
                     }
                 };
 
@@ -249,7 +251,7 @@ impl HostManager {
                 let mut request = self.client.post(&url).json(&request_body);
 
                 if self.interface.supports_bearer_auth() {
-                    if let Some(ref api_key) = self.api_key {
+                    if let Some(api_key) = &self.api_key {
                         debug!("Adding Authorization header with API key");
                         request = request.header("Authorization", format!("Bearer {api_key}"));
                     } else {
@@ -276,11 +278,11 @@ impl HostManager {
                         );
 
                         if response.status().is_success() {
-                            let response_text = response.text().await.map_err(|e| {
-                                error!("Failed to read response body: {e}");
+                            let response_text = response.text().await.map_err(|err| {
+                                error!("Failed to read response body: {err}");
                                 ImageAnalysisError::ProcessingError {
                                     filename: filename.clone(),
-                                    error: e.to_string(),
+                                    error: err.to_string(),
                                 }
                             })?;
 
@@ -290,8 +292,8 @@ impl HostManager {
                                 Ok(json_value) => {
                                     let content = self.interface.parse_response(&json_value);
 
-                                    if let Some(description) = content {
-                                        let description = description.trim().to_string();
+                                    if let Some(raw_description) = content {
+                                        let description = raw_description.trim().to_owned();
                                         if description.is_empty() {
                                             warn!("Empty response for image: {filename}");
                                             last_error = Some(ImageAnalysisError::EmptyResponse {
@@ -315,7 +317,7 @@ impl HostManager {
                                         );
                                         last_error = Some(ImageAnalysisError::JsonParsing {
                                             filename: filename.clone(),
-                                            error: "No content field found in response".to_string(),
+                                            error: "No content field found in response".to_owned(),
                                         });
                                     }
                                 }
@@ -351,15 +353,15 @@ impl HostManager {
                             last_error = Some(error);
                         }
                     }
-                    Ok(Err(e)) => {
+                    Ok(Err(err)) => {
                         error!(
                             "{:?} request failed for {}: {}",
-                            self.interface, filename, e
+                            self.interface, filename, err
                         );
                         last_error = Some(ImageAnalysisError::HttpError {
                             status: 0,
                             filename: filename.clone(),
-                            response: e.to_string(),
+                            response: err.to_string(),
                         });
                     }
                     Err(_) => {
@@ -373,10 +375,10 @@ impl HostManager {
                 self.mark_host_unavailable(&host);
             }
 
-            if let Some(ref e) = last_error
-                && !e.is_retryable()
+            if let Some(last_err) = &last_error
+                && !last_err.is_retryable()
             {
-                return Err(e.clone());
+                return Err(last_err.clone());
             }
 
             if self.max_retries.is_none_or(|max| attempt < max.get()) {

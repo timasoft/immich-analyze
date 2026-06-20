@@ -12,8 +12,8 @@ use crate::{
         is_preview_filename,
     },
 };
-use futures::stream::{self, StreamExt};
-use log::error;
+use futures::stream::{self, StreamExt as _};
+use log::{error, warn};
 use reqwest::Client;
 use std::{
     num::NonZeroU32,
@@ -23,10 +23,12 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-/// Get all preview image files from Immich thumbs directory using `std::fs`.
+/// Get all preview image files from Immich thumbs directory.
 ///
 /// This function is used in database mode to scan the filesystem for preview files.
-pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, ImageAnalysisError> {
+pub async fn get_immich_preview_files(
+    immich_root: &Path,
+) -> Result<Vec<PathBuf>, ImageAnalysisError> {
     let thumbs_dir = immich_root.join("thumbs");
     if !thumbs_dir.exists() {
         return Err(ImageAnalysisError::InvalidImmichStructure {
@@ -49,22 +51,22 @@ pub fn get_immich_preview_files(immich_root: &Path) -> Result<Vec<PathBuf>, Imag
     let mut preview_files = Vec::new();
     let mut stack = vec![thumbs_dir];
     while let Some(current_dir) = stack.pop() {
-        match std::fs::read_dir(&current_dir) {
-            Ok(entries) => {
-                for entry in entries.filter_map(|e| e.ok()) {
+        match tokio::fs::read_dir(&current_dir).await {
+            Ok(mut entries) => {
+                while let Ok(Some(entry)) = entries.next_entry().await {
                     let path = entry.path();
                     if path.is_dir() {
                         stack.push(path);
                     } else if path.is_file()
-                        && let Some(filename) = path.file_name().and_then(|f| f.to_str())
+                        && let Some(filename) = path.file_name().and_then(|name| name.to_str())
                         && is_preview_filename(filename)
                     {
                         preview_files.push(path);
                     }
                 }
             }
-            Err(e) => {
-                error!("Error reading directory {}: {}", current_dir.display(), e);
+            Err(err) => {
+                error!("Error reading directory {}: {}", current_dir.display(), err);
             }
         }
     }
@@ -79,7 +81,7 @@ async fn process_file_with_existing_check(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
-        .to_string();
+        .to_owned();
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
     let existing_description =
@@ -99,21 +101,23 @@ async fn process_file(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
-        .to_string();
+        .to_owned();
 
     let asset_id = extract_uuid_from_preview_filename(&filename)?;
 
     let preview_path = data_access.get_preview_path(&asset_id).await?;
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await
-        .unwrap_or_else(|| ctx.prompt.to_string());
+        .unwrap_or_else(|| ctx.prompt.to_owned());
 
     let analysis = ctx
         .host_manager
         .analyze_image(&preview_path, &final_prompt)
         .await?;
 
-    let _ = data_access.cleanup_preview(&preview_path).await;
+    if let Err(err) = data_access.cleanup_preview(&preview_path).await {
+        warn!("Failed to cleanup preview: {err}");
+    }
 
     let final_description = build_final_description(
         &analysis,
@@ -154,54 +158,53 @@ pub async fn process_files_concurrently(
     ));
 
     stream::iter(assets.into_iter().map(|asset| {
-        let data_access = data_access.clone();
         let prompt = args.prompt.clone();
-        let progress = Arc::clone(&progress);
-        let lang = locale.to_string();
+        let progress_clone = Arc::clone(&progress);
+        let lang = locale.to_owned();
         let overwrite_policy = args.effective_overwrite_policy();
         let asset_id = asset.id;
-        let host_manager = host_manager.clone();
+        let host_manager_clone = Arc::clone(&host_manager);
 
         async move {
             rust_i18n::set_locale(&lang);
-            let path = match data_access.get_preview_path(&asset_id).await {
-                Ok(p) => p,
-                Err(e) => {
+            let preview_path = match data_access.get_preview_path(&asset_id).await {
+                Ok(preview_path) => preview_path,
+                Err(err) => {
                     let filename = asset_id.to_string();
-                    progress
+                    progress_clone
                         .lock()
                         .await
                         .set_message(&rust_i18n::t!("progress.error", filename = filename));
 
-                    progress
+                    progress_clone
                         .lock()
                         .await
                         .set_message_and_inc(&rust_i18n::t!("progress.error", filename = filename));
 
-                    return (filename, Err(e));
+                    return (filename, Err(err));
                 }
             };
-            let filename = path
+            let filename = preview_path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
-                .to_string();
-            progress
+                .to_owned();
+            progress_clone
                 .lock()
                 .await
                 .set_message(&rust_i18n::t!("progress.processing", filename = filename));
 
             let ctx = ProcessingContext {
-                data_access: &data_access,
+                data_access,
                 prompt: &prompt,
-                host_manager: &host_manager,
+                host_manager: &host_manager_clone,
                 overwrite_policy,
                 enrich_prompt: args.enrich_prompt,
                 preserve_human: args.preserve_human,
             };
 
-            let result = process_file_with_existing_check(&ctx, &path).await;
-            progress
+            let result = process_file_with_existing_check(&ctx, &preview_path).await;
+            progress_clone
                 .lock()
                 .await
                 .set_message_and_inc(&rust_i18n::t!("progress.finished", filename = filename));
@@ -219,14 +222,14 @@ pub fn display_results(
 ) {
     println!("{}", rust_i18n::t!("main.analysis_results"));
     println!("{}", "-".repeat(31));
-    let mut successful = 0;
-    let mut failed = 0;
-    let mut skipped = 0;
+    let mut successful = 0_u32;
+    let mut failed = 0_u32;
+    let mut skipped = 0_u32;
     let mut output_lines = Vec::new();
     for (filename, result) in results {
         match result {
             Ok(analysis) => {
-                successful += 1;
+                successful = successful.saturating_add(1);
                 output_lines.push(format!(
                     "{} [{}] {}\n{}",
                     rust_i18n::t!("status.success"),
@@ -235,12 +238,12 @@ pub fn display_results(
                     "-".repeat(80)
                 ));
             }
-            Err(e) => {
-                let (count_increment, line) = handle_error_result(filename, e);
+            Err(err) => {
+                let (count_increment, line) = handle_error_result(filename, err);
                 match count_increment {
-                    "success" => successful += 1,
-                    "failed" => failed += 1,
-                    "skipped" => skipped += 1,
+                    "success" => successful = successful.saturating_add(1),
+                    "failed" => failed = failed.saturating_add(1),
+                    "skipped" => skipped = skipped.saturating_add(1),
                     _ => {}
                 }
                 output_lines.push(line);
@@ -302,7 +305,8 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
 }
 
 fn print_statistics(successful: u32, failed: u32, skipped: u32) {
-    let total = successful + failed + skipped;
+    #[expect(clippy::arithmetic_side_effects)]
+    let total = u64::from(successful) + u64::from(failed) + u64::from(skipped);
     println!("{}", rust_i18n::t!("main.statistics"));
     println!(
         "{}",
