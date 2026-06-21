@@ -7,7 +7,7 @@ AI-powered image description generator for Immich photo management system
 Immich Analyze automatically generates detailed descriptions for images in your Immich library using AI vision models via **Ollama** or **llama.cpp server**. This enhances search capabilities and organization by providing semantic understanding of image content.
 
 The application supports two data access modes:
-- **Database mode**: Direct PostgreSQL database access for reading/writing Immich metadata
+- **Database mode**: Direct PostgreSQL database access for reading/writing Immich metadata. Note: this mode is planned for removal in a future release (0.5.0 or 0.6.0) since the Immich team does not support direct database access, and schema changes may break compatibility without notice.
 - **API mode**: Uses the Immich API (requires `IMMICH_API_URL` + `IMMICH_API_KEY`; supports multiple comma-separated keys for multi-user setups)
 
 ## Features
@@ -15,7 +15,7 @@ The application supports two data access modes:
 - AI-powered image analysis using Ollama or llama.cpp server with vision-capable models
 - Multiple operation modes: batch processing, folder monitoring, or combined mode
 - Multi-host support with automatic failover for AI service endpoints
-- **Dual data access modes**: Direct PostgreSQL database access OR Immich API integration
+- **Dual data access modes**: Direct PostgreSQL database access OR Immich API integration (database mode is planned for removal in 0.5.0 or 0.6.0)
 - Concurrent processing with configurable parallelism
 - Configurable retry logic with max retries and delay between attempts
 - Internationalization support (English and Russian)
@@ -27,7 +27,7 @@ The application supports two data access modes:
 ## Prerequisites
 
 - Immich instance with either:
-  - PostgreSQL database access, OR
+  - PostgreSQL database access (planned for removal in 0.5.0 or 0.6.0), OR
   - Immich API endpoint with API key
 - AI service running a vision-capable model:
   - **Ollama** server (e.g., `qwen3-vl:4b-thinking-q4_K_M`), OR
@@ -97,7 +97,7 @@ networks:
 **Important notes about configuration:**
 
 - **Data Access Mode**: You must provide EITHER:
-  - Database credentials (`DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE_NAME`) for direct PostgreSQL access, OR
+  - Database credentials (`DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE_NAME`) for direct PostgreSQL access (planned for removal in 0.5.0 or 0.6.0), OR
   - API credentials (`IMMICH_API_URL`, `IMMICH_API_KEY`) for Immich API access
 - **Volume mounts**: The `/data` volume mount is only required when using **database mode** (to access `upload/` and `thumbs/` directories). When using **API mode**, this volume can be omitted.
 - The `ollama` service is **optional** - you can remove it and use an external Ollama or llama.cpp server instead
@@ -126,7 +126,7 @@ docker-compose up -d immich-analyze
 
 If you're using Nix or NixOS, you can build and run the application directly:
 
-**Database mode:**
+**Database mode (planned for removal in 0.5.0 or 0.6.0):**
 ```bash
 nix run github:timasoft/immich-analyze -- --data-access-mode database --immich-root /path/to/immich/data --postgres-url "host=localhost user=your_postgres_user dbname=immich password=your_postgres_password" -c
 ```
@@ -150,7 +150,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 
 3. Run the application:
 
-   **Database mode:**
+   **Database mode (planned for removal in 0.5.0 or 0.6.0):**
    ```bash
    immich-analyze --data-access-mode database --immich-root /path/to/immich/data --postgres-url "host=localhost user=your_postgres_user dbname=immich password=your_postgres_password" -c
    ```
@@ -168,11 +168,11 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 
 | Variable | Description | Default | Required For |
 |----------|-------------|---------|-------------|
-| `DB_USERNAME` | PostgreSQL username | - | Database mode |
-| `DB_PASSWORD` | PostgreSQL password | - | Database mode |
-| `DB_DATABASE_NAME` | PostgreSQL database name | - | Database mode |
-| `DB_HOSTNAME` | PostgreSQL hostname | `database` | Database mode |
-| `DB_PORT` | PostgreSQL port | `5432` | Database mode |
+| `DB_USERNAME` | PostgreSQL username | - | Database mode (planned for removal in 0.5.0 or 0.6.0) |
+| `DB_PASSWORD` | PostgreSQL password | - | Database mode (planned for removal in 0.5.0 or 0.6.0) |
+| `DB_DATABASE_NAME` | PostgreSQL database name | - | Database mode (planned for removal in 0.5.0 or 0.6.0) |
+| `DB_HOSTNAME` | PostgreSQL hostname | `database` | Database mode (planned for removal in 0.5.0 or 0.6.0) |
+| `DB_PORT` | PostgreSQL port | `5432` | Database mode (planned for removal in 0.5.0 or 0.6.0) |
 | `IMMICH_API_URL` | Immich API base URL | - | API mode |
 | `IMMICH_API_KEY` | Immich API authentication key(s) (comma-separated for multi-user setups) | - | API mode |
 
@@ -281,7 +281,7 @@ Options:
 
 ## Usage Examples
 
-### Database Mode
+### Database Mode (planned for removal in 0.5.0 or 0.6.0)
 
 **Basic Batch Processing with Ollama**
 ```bash
@@ -465,7 +465,7 @@ The application integrates with your Immich instance by analyzing preview images
 
 ### Data Access Modes
 
-#### Database Mode
+#### Database Mode (planned for removal in 0.5.0 or 0.6.0)
 - Direct access to Immich PostgreSQL database for reading/writing metadata
 - Direct filesystem access to `thumbs/` directory for image analysis
 - Uses filesystem events for monitoring new images
