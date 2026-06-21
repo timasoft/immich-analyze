@@ -1,5 +1,5 @@
 use crate::error::ImageAnalysisError;
-use crate::immich_api::{AssetRef, ImmichApiProvider};
+use crate::immich_api::{AssetMetadata, AssetRef, ImmichApiProvider};
 use crate::utils::{extract_uuid_from_preview_filename, filename_from_path, is_preview_filename};
 use clap::ValueEnum;
 use std::path::{Path, PathBuf};
@@ -155,6 +155,32 @@ impl DataAccess {
             filename: asset_id.to_string(),
             error: "Preview file not found in thumbs directory".to_owned(),
         })
+    }
+
+    /// Gets full metadata for an asset, used for prompt enrichment.
+    ///
+    /// # Database mode
+    /// Queries `PostgreSQL` tables (`asset`, `asset_exif`, `person`, `asset_face`, `tag`)
+    /// to build an `AssetMetadata` struct.
+    ///
+    /// # API mode
+    /// Fetches from Immich API `GET /api/assets/{id}` endpoint.
+    ///
+    /// # Arguments
+    /// * `asset_id` - UUID of the target asset
+    ///
+    /// # Returns
+    /// `AssetMetadata` containing all available metadata
+    pub async fn get_asset_metadata(
+        &self,
+        asset_id: &Uuid,
+    ) -> Result<AssetMetadata, ImageAnalysisError> {
+        match self {
+            Self::Database { client, .. } => {
+                crate::database::get_asset_metadata(client, *asset_id).await
+            }
+            Self::ImmichApi { provider } => provider.get_asset_metadata(asset_id).await,
+        }
     }
 
     /// Updates or creates a description for an asset.
