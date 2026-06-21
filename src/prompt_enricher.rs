@@ -1,4 +1,4 @@
-use crate::{config::ProcessingContext, data_access::DataAccess};
+use crate::config::ProcessingContext;
 use chrono::{Datelike as _, NaiveDate};
 use log::warn;
 use uuid::Uuid;
@@ -262,81 +262,76 @@ pub async fn enrich_prompt_if_needed(
         return None;
     }
 
-    if let DataAccess::ImmichApi { provider } = ctx.data_access {
-        match provider.get_asset_metadata(asset_id).await {
-            Ok(metadata) => {
-                let photo_date = metadata
-                    .local_date_time
-                    .as_deref()
-                    .or(metadata.file_created_at.as_deref())
-                    .or_else(|| {
-                        metadata
-                            .exif_info
-                            .as_ref()
-                            .and_then(|exif| exif.date_time_original.as_deref())
-                    });
+    match ctx.data_access.get_asset_metadata(asset_id).await {
+        Ok(metadata) => {
+            let photo_date = metadata
+                .local_date_time
+                .as_deref()
+                .or(metadata.file_created_at.as_deref())
+                .or_else(|| {
+                    metadata
+                        .exif_info
+                        .as_ref()
+                        .and_then(|exif| exif.date_time_original.as_deref())
+                });
 
-                let people_with_ages: Vec<(String, Option<u32>)> = metadata
-                    .people
-                    .iter()
-                    .map(|person| {
-                        let age = calculate_age(person.birth_date.as_deref(), photo_date);
-                        (person.name.clone(), age)
-                    })
+            let people_with_ages: Vec<(String, Option<u32>)> = metadata
+                .people
+                .iter()
+                .map(|person| {
+                    let age = calculate_age(person.birth_date.as_deref(), photo_date);
+                    (person.name.clone(), age)
+                })
+                .collect();
+
+            let tag_values: Vec<String> =
+                metadata.tags.iter().map(|tag| tag.value.clone()).collect();
+
+            let mut context = PromptContext::new(ctx.prompt)
+                .with_file_info(metadata.original_file_name, metadata.r#type)
+                .with_people(people_with_ages)
+                .with_tags(tag_values)
+                .with_resolution(metadata.width, metadata.height)
+                .with_mime_type(metadata.original_mime_type);
+
+            if let Some(exif) = metadata.exif_info {
+                let created_at = exif.date_time_original.or(metadata.file_created_at);
+                context = context.with_created_at(created_at);
+
+                let location_parts: Vec<String> = [exif.city, exif.state, exif.country]
+                    .into_iter()
+                    .flatten()
+                    .filter(|part| !part.is_empty())
                     .collect();
 
-                let tag_values: Vec<String> =
-                    metadata.tags.iter().map(|tag| tag.value.clone()).collect();
-
-                let mut context = PromptContext::new(ctx.prompt)
-                    .with_file_info(metadata.original_file_name, metadata.r#type)
-                    .with_people(people_with_ages)
-                    .with_tags(tag_values)
-                    .with_resolution(metadata.width, metadata.height)
-                    .with_mime_type(metadata.original_mime_type);
-
-                if let Some(exif) = metadata.exif_info {
-                    let created_at = exif.date_time_original.or(metadata.file_created_at);
-                    context = context.with_created_at(created_at);
-
-                    let location_parts: Vec<String> = [exif.city, exif.state, exif.country]
-                        .into_iter()
-                        .flatten()
-                        .filter(|part| !part.is_empty())
-                        .collect();
-
-                    let location = if location_parts.is_empty() {
-                        None
-                    } else {
-                        Some(location_parts.join(", "))
-                    };
-
-                    context = context
-                        .with_location(location)
-                        .with_camera_info(exif.make, exif.model)
-                        .with_lens_model(exif.lens_model)
-                        .with_exposure_settings(
-                            exif.exposure_time,
-                            exif.f_number,
-                            exif.focal_length,
-                            exif.iso,
-                        )
-                        .with_rating(exif.rating)
-                        .with_time_zone(exif.time_zone)
-                        .with_exif_description(exif.description);
+                let location = if location_parts.is_empty() {
+                    None
                 } else {
-                    context = context.with_created_at(metadata.file_created_at);
-                }
+                    Some(location_parts.join(", "))
+                };
 
-                Some(context.build_enriched_prompt())
+                context = context
+                    .with_location(location)
+                    .with_camera_info(exif.make, exif.model)
+                    .with_lens_model(exif.lens_model)
+                    .with_exposure_settings(
+                        exif.exposure_time,
+                        exif.f_number,
+                        exif.focal_length,
+                        exif.iso,
+                    )
+                    .with_rating(exif.rating)
+                    .with_time_zone(exif.time_zone)
+                    .with_exif_description(exif.description);
+            } else {
+                context = context.with_created_at(metadata.file_created_at);
             }
-            Err(err) => {
-                warn!("Failed to get asset metadata for enrichment: {err}");
-                None
-            }
+
+            Some(context.build_enriched_prompt())
         }
-    } else {
-        warn!("Prompt enrichment is only supported in Immich API mode, skipping");
-        None
+        Err(err) => {
+            warn!("Failed to get asset metadata for enrichment of {asset_id}: {err}");
+            None
+        }
     }
 }
