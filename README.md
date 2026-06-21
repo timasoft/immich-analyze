@@ -202,6 +202,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `IMMICH_ANALYZE_NO_FINAL_OUTPUT` | If true, disable final output with analysis results and statistics after batch processing | `false` |
 | `IMMICH_ANALYZE_MAX_RETRIES` | Maximum retry attempts (0 = infinite) | `0` |
 | `IMMICH_ANALYZE_RETRY_DELAY_SECONDS` | Delay between retry cycles in seconds | `5` |
+| `IMMICH_ANALYZE_HEALTH_PORT` | Port for health check HTTP server (0 to disable) | `3000` |
 | `RUST_LOG` | Logging level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
 
 > **Default prompt**: `Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long.`
@@ -227,9 +228,9 @@ Options:
       --immich-root <IMMICH_ROOT>
           Path to Immich root directory (containing upload/, thumbs/ folders) [default: /var/lib/immich]
       --postgres-url <POSTGRES_URL>
-          PostgreSQL connection string (used only in database mode) [default: "host=localhost user=postgres dbname=immich password=your_password"]
+          `PostgreSQL` connection string (used only in database mode) [default: "host=localhost user=postgres dbname=immich password=your_password"]
   -d, --data-access-mode <DATA_ACCESS_MODE>
-          Data access mode: database (direct PostgreSQL) or api (Immich REST API) [default: database] [possible values: database, immich-api]
+          Data access mode: database (direct `PostgreSQL`) or api (Immich REST API) [default: database] [possible values: database, immich-api]
       --immich-api-url <IMMICH_API_URL>
           Immich API base URL (required when using api access mode) [env: IMMICH_API_URL=]
       --immich-api-keys <IMMICH_API_KEYS>
@@ -268,6 +269,8 @@ Options:
           Enable prompt enrichment with asset metadata (date, location, camera info)
       --no-final-output
           Disable final output with analysis results and statistics after batch processing
+      --health-port <HEALTH_PORT>
+          Port for health check HTTP server (0 to disable) [default: 3000]
   -h, --help
           Print help (see more with '--help')
   -V, --version

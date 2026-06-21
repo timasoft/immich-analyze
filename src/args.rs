@@ -125,6 +125,9 @@ pub struct Args {
     /// Disable final output with analysis results and statistics after batch processing
     #[arg(long, default_value_t = false)]
     pub no_final_output: bool,
+    /// Port for health check HTTP server (0 to disable)
+    #[arg(long, default_value_t = 3000)]
+    pub health_port: u16,
 }
 
 impl Args {

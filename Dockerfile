@@ -43,8 +43,9 @@ RUN mkdir -p /data && \
 WORKDIR /app
 RUN chown appuser:appuser /app
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
+ENV IMMICH_ANALYZE_HEALTH_PORT=3000
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${IMMICH_ANALYZE_HEALTH_PORT}/health
 
 LABEL org.opencontainers.image.source="https://github.com/timasoft/immich-analyze"
 LABEL org.opencontainers.image.description="Immich image analysis service with AI-powered descriptions"
