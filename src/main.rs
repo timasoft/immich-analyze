@@ -10,6 +10,7 @@ mod data_access;
 mod database;
 mod error;
 mod file_processing;
+mod health;
 mod host_manager;
 mod immich_api;
 mod monitor;
@@ -44,6 +45,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     validate_args(&args)?;
+
+    // Start health check HTTP server for Docker HEALTHCHECK
+    let health_port = args.health_port;
+    tokio::spawn(async move {
+        health::start_health_server(health_port).await;
+    });
 
     // Create data access based on mode
     let data_access = match args.data_access_mode {

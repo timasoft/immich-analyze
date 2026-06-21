@@ -2,6 +2,7 @@ use crate::{
     config::{MonitorConfig, ProcessingContext},
     data_access::DataAccess,
     error::ImageAnalysisError,
+    health::mark_activity,
     host_manager::HostManager,
     immich_api::ImmichApiProvider,
     prompt_enricher::enrich_prompt_if_needed,
@@ -236,6 +237,7 @@ pub async fn monitor_folder(
                         return Ok(());
                     }
                     _ = interval.tick() => {
+                        mark_activity();
                         handle_fs_events(
                             &event_rx,
                             &mut last_events,
@@ -269,6 +271,7 @@ pub async fn monitor_folder(
                         return Ok(());
                     }
                     _ = poll_interval.tick() => {
+                        mark_activity();
                         handle_api_poll(
                             provider,
                             &mut known_assets,

@@ -92,6 +92,10 @@ if [[ "$IMMICH_ANALYZE_TIMEOUT" =~ ^[0-9]+$ ]]; then
     args+=("--timeout" "$IMMICH_ANALYZE_TIMEOUT")
 fi
 
+if [[ "$IMMICH_ANALYZE_HEALTH_PORT" =~ ^[0-9]+$ ]]; then
+    args+=("--health-port" "$IMMICH_ANALYZE_HEALTH_PORT")
+fi
+
 if [[ "$IMMICH_ANALYZE_API_POLL_INTERVAL" =~ ^[0-9]+$ ]]; then
     args+=("--api-poll-interval" "$IMMICH_ANALYZE_API_POLL_INTERVAL")
 fi

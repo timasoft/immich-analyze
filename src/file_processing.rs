@@ -3,6 +3,7 @@ use crate::{
     data_access::DataAccess,
     database::ImageAnalysisResult,
     error::ImageAnalysisError,
+    health::mark_activity,
     host_manager::HostManager,
     immich_api::AssetRef,
     progress::SimpleProgress,
@@ -160,6 +161,7 @@ pub async fn process_files_concurrently(
 
         async move {
             rust_i18n::set_locale(&lang);
+            mark_activity();
             let preview_path = match data_access.get_preview_path(&asset_id).await {
                 Ok(preview_path) => preview_path,
                 Err(err) => {
