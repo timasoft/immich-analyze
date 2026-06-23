@@ -189,6 +189,12 @@ database.insert_success:
 database.insert_error:
   en: " Insert error for asset %{asset_id}: %{error}"
   ru: " Ошибка вставки для ассета %{asset_id}: %{error}"
+database.asset_existence_check_error:
+  en: " Error checking asset existence: %{error}"
+  ru: " Ошибка проверки существования ассета: %{error}"
+database.asset_not_in_table:
+  en: " Asset %{asset_id} does not exist in the asset table!"
+  ru: " Ассет %{asset_id} не существует в таблице asset!"
 database.connection_success:
   en: " Database connection test passed"
   ru: " Проверка подключения к базе данных пройдена"

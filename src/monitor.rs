@@ -393,10 +393,10 @@ fn handle_fs_events(
                                 files.remove(&filename_clone);
                             }
                             if let Err(err) = result {
-                                if let ImageAnalysisError::AlreadyProcessed { filename: _ } = err {
-                                    // Expected when ignoring existing files
-                                } else {
-                                    error!("Background processing error for: {filename_clone}");
+                                match err {
+                                    ImageAnalysisError::AlreadyProcessed { .. }
+                                    | ImageAnalysisError::AssetNotFound { .. } => {}
+                                    err => error!("Background processing error for: {filename_clone}: {}", err.user_message()),
                                 }
                             }
                         });
@@ -525,10 +525,10 @@ async fn handle_api_poll(
                         }
 
                         if let Err(err) = result {
-                            if let ImageAnalysisError::AlreadyProcessed { .. } = err {
-                                // Expected when ignoring existing files
-                            } else {
-                                error!("Background processing error for: {asset_id}");
+                            match err {
+                                ImageAnalysisError::AlreadyProcessed { .. }
+                                | ImageAnalysisError::AssetNotFound { .. } => {}
+                                err => error!("Background processing error for: {asset_id}: {}", err.user_message()),
                             }
                         }
                     });

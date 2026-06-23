@@ -72,6 +72,29 @@ pub async fn asset_has_description(
     }
 }
 
+/// Check if an asset exists in the asset table
+pub async fn check_asset_exists(
+    client: &PgClient,
+    asset_id: Uuid,
+) -> Result<bool, ImageAnalysisError> {
+    let query = "SELECT EXISTS (SELECT 1 FROM asset WHERE id = $1)";
+    match client.query_one(query, &[&asset_id]).await {
+        Ok(row) => Ok(row.get(0)),
+        Err(err) => {
+            eprintln!(
+                "{}",
+                rust_i18n::t!(
+                    "database.asset_existence_check_error",
+                    error = err.to_string()
+                )
+            );
+            Err(ImageAnalysisError::DatabaseError {
+                error: err.to_string(),
+            })
+        }
+    }
+}
+
 /// Update or create asset description in database
 pub async fn update_or_create_asset_description(
     client: &PgClient,
