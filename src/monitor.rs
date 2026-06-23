@@ -115,6 +115,7 @@ pub async fn process_new_file(
                 data_access,
                 ctx.preserve_human,
                 existing_description,
+                ctx.disable_ai_wrapper,
             )
             .await?;
 
@@ -378,6 +379,7 @@ fn handle_fs_events(
                                 config_clone.overwrite_policy,
                                 config_clone.enrich_prompt,
                                 config_clone.preserve_human,
+                                config_clone.disable_ai_wrapper,
                             );
                             let result = process_new_file(
                                 &ctx,
@@ -396,7 +398,10 @@ fn handle_fs_events(
                                 match err {
                                     ImageAnalysisError::AlreadyProcessed { .. }
                                     | ImageAnalysisError::AssetNotFound { .. } => {}
-                                    err => error!("Background processing error for: {filename_clone}: {}", err.user_message()),
+                                    err => error!(
+                                        "Background processing error for: {filename_clone}: {}",
+                                        err.user_message()
+                                    ),
                                 }
                             }
                         });
@@ -499,6 +504,7 @@ async fn handle_api_poll(
                             config_clone.overwrite_policy,
                             config_clone.enrich_prompt,
                             config_clone.preserve_human,
+                            config_clone.disable_ai_wrapper,
                         );
 
                         let result = process_new_file(
@@ -528,7 +534,10 @@ async fn handle_api_poll(
                             match err {
                                 ImageAnalysisError::AlreadyProcessed { .. }
                                 | ImageAnalysisError::AssetNotFound { .. } => {}
-                                err => error!("Background processing error for: {asset_id}: {}", err.user_message()),
+                                err => error!(
+                                    "Background processing error for: {asset_id}: {}",
+                                    err.user_message()
+                                ),
                             }
                         }
                     });

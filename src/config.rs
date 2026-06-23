@@ -22,6 +22,7 @@ pub struct MonitorConfig {
     pub retry_delay_seconds: u64,
     pub enrich_prompt: bool,
     pub preserve_human: bool,
+    pub disable_ai_wrapper: bool,
 }
 
 impl MonitorConfig {
@@ -43,6 +44,7 @@ impl MonitorConfig {
             retry_delay_seconds: args.retry_delay_seconds,
             enrich_prompt: args.enrich_prompt,
             preserve_human: args.preserve_human,
+            disable_ai_wrapper: args.disable_ai_wrapper,
         }
     }
 }
@@ -55,6 +57,7 @@ pub struct ProcessingContext<'a> {
     pub overwrite_policy: OverwritePolicy,
     pub enrich_prompt: bool,
     pub preserve_human: bool,
+    pub disable_ai_wrapper: bool,
 }
 
 impl<'a> ProcessingContext<'a> {
@@ -66,6 +69,7 @@ impl<'a> ProcessingContext<'a> {
         overwrite_policy: OverwritePolicy,
         enrich_prompt: bool,
         preserve_human: bool,
+        disable_ai_wrapper: bool,
     ) -> Self {
         Self {
             data_access,
@@ -74,6 +78,7 @@ impl<'a> ProcessingContext<'a> {
             overwrite_policy,
             enrich_prompt,
             preserve_human,
+            disable_ai_wrapper,
         }
     }
 }

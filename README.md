@@ -194,11 +194,12 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 |----------|-------------|---------|
 | `IMMICH_ANALYZE_OVERWRITE_EXISTING` | If true, overwrite existing descriptions (alias for `--overwrite-policy all`) | `false` |
 | `IMMICH_ANALYZE_OVERWRITE_POLICY` | Overwrite policy: `none` (skip any with description), `all` (process everything), `missing-ai` (process only if no `[AI]...[/AI]` block). Overrides `IMMICH_ANALYZE_OVERWRITE_EXISTING` | `none` |
-| `IMMICH_ANALYZE_PRESERVE_HUMAN` | If true, preserve human text outside `[AI]...[/AI]` blocks by only replacing the AI block | `false` |
+| `IMMICH_ANALYZE_PRESERVE_HUMAN` | If true, preserve human text outside `[AI]...[/AI]` blocks by only replacing the AI block. Incompatible with `--disable-ai-wrapper` | `false` |
 | `IMMICH_ANALYZE_LANG` | Interface language for the application (en, ru) | `en` |
 | `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent AI requests | `4` |
 | `IMMICH_ANALYZE_UNAVAILABLE_DURATION` | Host availability check interval in seconds | `60` |
 | `IMMICH_ANALYZE_TIMEOUT` | AI request timeout in seconds | `300` |
+| `IMMICH_ANALYZE_DISABLE_AI_WRAPPER` | If true, disable `[AI]...[/AI]` wrapper, storing description as plain text. Incompatible with `--preserve-human`. When combined with `missing-ai` overwrite policy, every asset will be re-analyzed (no `[AI]` tag to detect) | `false` |
 | `IMMICH_ANALYZE_NO_FINAL_OUTPUT` | If true, disable final output with analysis results and statistics after batch processing | `false` |
 | `IMMICH_ANALYZE_MAX_RETRIES` | Maximum retry attempts (0 = infinite) | `0` |
 | `IMMICH_ANALYZE_RETRY_DELAY_SECONDS` | Delay between retry cycles in seconds | `5` |
@@ -267,6 +268,8 @@ Options:
           Delay between retry cycles in seconds (fixed) [default: 5]
       --enrich-prompt
           Enable prompt enrichment with asset metadata (date, location, camera info)
+      --disable-ai-wrapper
+          Disable [AI]...[/AI] wrapper around AI-generated description
       --no-final-output
           Disable final output with analysis results and statistics after batch processing
       --health-port <HEALTH_PORT>
