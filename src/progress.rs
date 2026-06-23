@@ -31,6 +31,14 @@ impl SimpleProgress {
         message.clone_into(&mut self.current_message);
         self.inc();
     }
+    pub fn dec_total(&mut self) {
+        self.total = self.total.saturating_sub(1);
+        self.display();
+    }
+    pub fn set_message_and_dec_total(&mut self, message: &str) {
+        message.clone_into(&mut self.current_message);
+        self.dec_total();
+    }
     pub fn display(&self) {
         let progress: u8 = self
             .current
