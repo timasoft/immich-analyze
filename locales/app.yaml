@@ -83,6 +83,9 @@ main.monitor_mode_started_in_background:
 progress.processing:
   en: " Processing: %{filename}"
   ru: " Обрабатывается: %{filename}"
+progress.skipped:
+  en: " Skipped: %{filename}"
+  ru: " Пропущено: %{filename}"
 progress.error:
   en: " Error processing: %{filename}"
   ru: " Ошибка обработки: %{filename}"

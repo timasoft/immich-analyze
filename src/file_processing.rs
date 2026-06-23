@@ -197,10 +197,25 @@ pub async fn process_files_concurrently(
             );
 
             let result = process_file_with_existing_check(&ctx, &preview_path).await;
-            progress_clone
-                .lock()
-                .await
-                .set_message_and_inc(&rust_i18n::t!("progress.finished", filename = filename));
+            match &result {
+                Err(ImageAnalysisError::AlreadyProcessed { .. })
+                | Err(ImageAnalysisError::InvalidUuid { .. })
+                | Err(ImageAnalysisError::AssetNotFound { .. }) => {
+                    progress_clone
+                        .lock()
+                        .await
+                        .set_message_and_dec_total(&rust_i18n::t!("progress.skipped", filename = filename));
+                }
+                _ => {
+                    progress_clone
+                        .lock()
+                        .await
+                        .set_message_and_inc(&rust_i18n::t!(
+                            "progress.finished",
+                            filename = filename
+                        ));
+                }
+            }
             (filename, result)
         }
     }))
