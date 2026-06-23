@@ -118,6 +118,7 @@ async fn process_file(
         data_access,
         ctx.preserve_human,
         existing_description,
+        ctx.disable_ai_wrapper,
     )
     .await?;
 
@@ -192,6 +193,7 @@ pub async fn process_files_concurrently(
                 overwrite_policy,
                 args.enrich_prompt,
                 args.preserve_human,
+                args.disable_ai_wrapper,
             );
 
             let result = process_file_with_existing_check(&ctx, &preview_path).await;

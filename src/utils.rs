@@ -127,7 +127,9 @@ pub async fn check_overwrite_policy(
     overwrite_policy: OverwritePolicy,
 ) -> Result<OverwriteDecision, ImageAnalysisError> {
     if !data_access.asset_exists(asset_id).await? {
-        return Err(ImageAnalysisError::AssetNotFound { asset_id: *asset_id });
+        return Err(ImageAnalysisError::AssetNotFound {
+            asset_id: *asset_id,
+        });
     }
     match overwrite_policy {
         OverwritePolicy::All => Ok(OverwriteDecision::AnalyzeFresh),
@@ -155,7 +157,12 @@ pub async fn build_final_description(
     data_access: &DataAccess,
     preserve_human: bool,
     existing_description: Option<String>,
+    disable_ai_wrapper: bool,
 ) -> Result<String, ImageAnalysisError> {
+    if disable_ai_wrapper {
+        return Ok(analysis.description.trim().to_owned());
+    }
+
     let ai_wrapped = format!("[AI]\n{}\n[/AI]", analysis.description.trim());
 
     if !preserve_human {
@@ -230,6 +237,11 @@ pub fn validate_args(args: &crate::args::Args) -> Result<(), Box<dyn std::error:
         eprintln!("{}", rust_i18n::t!("error.use_combined_or_monitor"));
         Err("incompatible flags".into())
     } else {
+        if args.disable_ai_wrapper
+            && args.effective_overwrite_policy() == OverwritePolicy::MissingAi
+        {
+            println!("{}", rust_i18n::t!("warning.disable_ai_wrapper_missing_ai"));
+        }
         Ok(())
     }
 }

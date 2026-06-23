@@ -271,6 +271,9 @@ error.query_failed_error:
 error.batch_mode_failed:
   en: " Batch mode failed: %{error}"
   ru: " Batch режим завершился с ошибкой: %{error}"
+warning.disable_ai_wrapper_missing_ai:
+  en: " --disable-ai-wrapper with --overwrite-policy missing-ai will re-analyze every asset (no [AI] tag to detect)"
+  ru: " --disable-ai-wrapper с --overwrite-policy missing-ai будет каждый раз переанализировать все ассеты (нет тега [AI] для обнаружения)"
 error.all_hosts_unavailable:
   en: " All servers are unavailable. Cannot process image."
   ru: " Все серверы недоступны. Невозможно обработать изображение."

@@ -75,6 +75,10 @@ if [ "${IMMICH_ANALYZE_PRESERVE_HUMAN:-false}" = "true" ]; then
     args+=("--preserve-human")
 fi
 
+if [ "${IMMICH_ANALYZE_DISABLE_AI_WRAPPER:-false}" = "true" ]; then
+    args+=("--disable-ai-wrapper")
+fi
+
 if [ "${IMMICH_ANALYZE_NO_FINAL_OUTPUT:-false}" = "true" ]; then
     args+=("--no-final-output")
 fi

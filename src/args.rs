@@ -40,7 +40,7 @@ pub struct Args {
     #[arg(short = 'O', long, value_enum)]
     pub overwrite_policy: Option<OverwritePolicy>,
     /// When overwriting or adding, preserve human-entered text by only replacing the [AI]...[/AI] block
-    #[arg(short, long)]
+    #[arg(short, long, conflicts_with = "disable_ai_wrapper")]
     pub preserve_human: bool,
     /// Path to Immich root directory (containing upload/, thumbs/ folders)
     #[arg(long, default_value = "/var/lib/immich")]
@@ -122,6 +122,9 @@ pub struct Args {
     /// Enable prompt enrichment with asset metadata (date, location, camera info)
     #[arg(long, default_value_t = false)]
     pub enrich_prompt: bool,
+    /// Disable [AI]...[/AI] wrapper around AI-generated description
+    #[arg(long, default_value_t = false, conflicts_with = "preserve_human")]
+    pub disable_ai_wrapper: bool,
     /// Disable final output with analysis results and statistics after batch processing
     #[arg(long, default_value_t = false)]
     pub no_final_output: bool,
