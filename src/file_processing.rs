@@ -272,6 +272,16 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
                 "-".repeat(80)
             ),
         ),
+        ImageAnalysisError::AssetNotFound { asset_id } => (
+            "skipped",
+            format!(
+                "{} [{}] {}\n{}",
+                rust_i18n::t!("status.skipped"),
+                filename,
+                rust_i18n::t!("database.asset_not_in_table", asset_id = asset_id),
+                "-".repeat(80)
+            ),
+        ),
         ImageAnalysisError::InvalidImmichStructure { error } => (
             "failed",
             format!(

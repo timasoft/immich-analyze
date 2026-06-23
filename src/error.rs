@@ -1,4 +1,5 @@
 use thiserror::Error;
+use uuid::Uuid;
 
 #[derive(Debug, Error, Clone)]
 pub enum ImageAnalysisError {
@@ -38,6 +39,8 @@ pub enum ImageAnalysisError {
     HttpClientError { error: String },
     #[error("IO error for {path}: {error}")]
     IoError { path: String, error: String },
+    #[error("Asset not found: {asset_id}")]
+    AssetNotFound { asset_id: Uuid },
 }
 
 impl ImageAnalysisError {
@@ -107,6 +110,9 @@ impl ImageAnalysisError {
             Self::IoError { path, error } => {
                 rust_i18n::t!("error.io_error", path = path, error = error).to_string()
             }
+            Self::AssetNotFound { asset_id } => {
+                rust_i18n::t!("database.asset_not_in_table", asset_id = asset_id).to_string()
+            }
         }
     }
 
@@ -134,7 +140,8 @@ impl ImageAnalysisError {
             | Self::DatabaseError { .. }
             | Self::ProcessingError { .. }
             | Self::FileWriteTimeout { .. }
-            | Self::IoError { .. } => false,
+            | Self::IoError { .. }
+            | Self::AssetNotFound { .. } => false,
         }
     }
 }

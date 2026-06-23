@@ -126,6 +126,9 @@ pub async fn check_overwrite_policy(
     asset_id: &Uuid,
     overwrite_policy: OverwritePolicy,
 ) -> Result<OverwriteDecision, ImageAnalysisError> {
+    if !data_access.asset_exists(asset_id).await? {
+        return Err(ImageAnalysisError::AssetNotFound { asset_id: *asset_id });
+    }
     match overwrite_policy {
         OverwritePolicy::All => Ok(OverwriteDecision::AnalyzeFresh),
         OverwritePolicy::None => {

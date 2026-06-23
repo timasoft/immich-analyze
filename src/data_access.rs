@@ -157,6 +157,28 @@ impl DataAccess {
         })
     }
 
+    /// Checks if an asset exists in the database.
+    ///
+    /// # Database mode
+    /// Queries `asset` table via `SELECT EXISTS` to verify the asset row still exists.
+    ///
+    /// # API mode
+    /// Sends `GET /api/assets/{id}` and checks for 200 (exists) vs 400/404 (not found).
+    ///
+    /// # Arguments
+    /// * `asset_id` - UUID of the target asset
+    ///
+    /// # Returns
+    /// `true` if the asset exists, `false` otherwise.
+    pub async fn asset_exists(&self, asset_id: &Uuid) -> Result<bool, ImageAnalysisError> {
+        match self {
+            Self::Database { client, .. } => {
+                crate::database::check_asset_exists(client, *asset_id).await
+            }
+            Self::ImmichApi { provider } => provider.asset_exists(asset_id).await,
+        }
+    }
+
     /// Gets full metadata for an asset, used for prompt enrichment.
     ///
     /// # Database mode

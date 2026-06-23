@@ -507,6 +507,48 @@ impl ImmichApiProvider {
         }))
     }
 
+    /// Checks if an asset exists via API.
+    /// Tries all API keys until one succeeds.
+    ///
+    /// # Arguments
+    /// * `asset_id` - UUID of the asset
+    ///
+    /// # Returns
+    /// `true` if the asset exists (200 response), `false` if not found (400/404 with "Not found" message).
+    /// Defaults to `true` if all keys fail (conservative: let the write fail instead of skipping a valid asset).
+    pub async fn asset_exists(&self, asset_id: &Uuid) -> Result<bool, ImageAnalysisError> {
+        let url = self
+            .base_url
+            .join(&format!("/api/assets/{asset_id}"))
+            .map_err(|err| ImageAnalysisError::InvalidConfig {
+                error: err.to_string(),
+            })?;
+
+        for client in &self.clients {
+            let response = client.get(url.clone()).send().await;
+
+            match response {
+                Ok(resp) if resp.status().is_success() => return Ok(true),
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    if status == 404 {
+                        return Ok(false);
+                    }
+                    if status == 400
+                        && let Ok(body) = resp.text().await
+                        && body.contains("Not found")
+                    {
+                        return Ok(false);
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+
+        warn!("All API clients failed to check asset {asset_id}, assuming it exists");
+        Ok(true)
+    }
+
     /// Gets full metadata for an asset including EXIF information.
     ///
     /// # Arguments
