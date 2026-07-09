@@ -21,9 +21,25 @@ DB_HOSTNAME="${DB_HOSTNAME:-database}"
 DB_PORT="${DB_PORT:-5432}"
 
 # Build safe arguments array
-args=(
-    "--combined"
-)
+args=()
+
+# Add mode
+MODE="${IMMICH_ANALYZE_MODE:-combined}"
+case "$MODE" in
+    monitor)
+        args+=("--monitor")
+        ;;
+    combined)
+        args+=("--combined")
+        ;;
+    batch)
+        # No mode flag needed — batch is the default
+        ;;
+    *)
+        echo "ERROR: IMMICH_ANALYZE_MODE must be one of: monitor, combined, batch (got: $MODE)"
+        exit 1
+        ;;
+esac
 
 # Add data access mode
 if [ -n "$DB_USERNAME" ] && [ -n "$DB_PASSWORD" ] && [ -n "$DB_DATABASE_NAME" ]; then

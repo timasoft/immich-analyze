@@ -192,6 +192,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `IMMICH_ANALYZE_MODE` | Operating mode: `monitor`, `combined`, or `batch` | `combined` |
 | `IMMICH_ANALYZE_OVERWRITE_EXISTING` | If true, overwrite existing descriptions (alias for `--overwrite-policy all`) | `false` |
 | `IMMICH_ANALYZE_OVERWRITE_POLICY` | Overwrite policy: `none` (skip any with description), `all` (process everything), `missing-ai` (process only if no `[AI]...[/AI]` block). Overrides `IMMICH_ANALYZE_OVERWRITE_EXISTING` | `none` |
 | `IMMICH_ANALYZE_PRESERVE_HUMAN` | If true, preserve human text outside `[AI]...[/AI]` blocks by only replacing the AI block. Incompatible with `--disable-ai-wrapper` | `false` |
