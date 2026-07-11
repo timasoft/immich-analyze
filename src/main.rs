@@ -89,6 +89,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err("IMMICH_API_KEY required for API mode. Set via --immich-api-keys or IMMICH_API_KEY env var (comma-separated for multiple keys)".into());
             }
             let provider = immich_api::ImmichApiProvider::new(api_url, &args.immich_api_keys)?;
+            if !args.no_wait_for_immich {
+                let timeout_display = if args.wait_timeout == 0 {
+                    "∞".to_owned()
+                } else {
+                    args.wait_timeout.to_string()
+                };
+                println!(
+                    "{}",
+                    rust_i18n::t!("main.waiting_for_immich", timeout = timeout_display)
+                );
+                provider
+                    .wait_until_ready(args.wait_timeout, args.wait_retry_interval)
+                    .await?;
+                println!("{}", rust_i18n::t!("main.immich_ready"));
+            }
             println!(
                 "{}",
                 rust_i18n::t!(

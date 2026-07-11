@@ -1,12 +1,12 @@
 use crate::error::ImageAnalysisError;
-use log::warn;
+use log::{info, warn};
 use reqwest::{
     Client,
     header::{HeaderMap, HeaderValue},
 };
 use serde::Deserialize;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use url::Url;
 use uuid::Uuid;
 
@@ -177,6 +177,87 @@ impl ImmichApiProvider {
         }
 
         Ok(Self { clients, base_url })
+    }
+
+    /// Waits for the Immich server to become reachable by pinging `/api/server/ping`.
+    ///
+    /// Retries until the server responds with `"pong"` or the timeout is exceeded.
+    ///
+    /// # Arguments
+    /// * `timeout_secs` — maximum time to wait in seconds (0 = no limit)
+    /// * `retry_interval` — seconds between retries
+    ///
+    /// # Errors
+    /// Returns an error if the timeout is exceeded.
+    pub async fn wait_until_ready(
+        &self,
+        timeout_secs: u64,
+        retry_interval: u64,
+    ) -> Result<(), ImageAnalysisError> {
+        let ping_url = self.base_url.join("/api/server/ping").map_err(|err| {
+            ImageAnalysisError::InvalidConfig {
+                error: err.to_string(),
+            }
+        })?;
+
+        let deadline = if timeout_secs == 0 {
+            None
+        } else {
+            Some(
+                Instant::now()
+                    .checked_add(Duration::from_secs(timeout_secs))
+                    .unwrap_or_else(Instant::now),
+            )
+        };
+        let mut attempt: u64 = 0;
+
+        loop {
+            attempt = attempt.saturating_add(1);
+            let mut last_err = String::new();
+            let mut success = false;
+
+            for client in &self.clients {
+                let response = client.get(ping_url.clone()).send().await;
+                match response {
+                    Ok(resp) if resp.status().is_success() => {
+                        let body = resp.text().await.unwrap_or_default();
+                        if body.contains("pong") {
+                            success = true;
+                            break;
+                        }
+                        last_err = format!("unexpected response: {body}");
+                    }
+                    Ok(resp) => {
+                        last_err = format!("HTTP {}", resp.status());
+                    }
+                    Err(err) => {
+                        last_err = err.to_string();
+                    }
+                }
+            }
+
+            if success {
+                return Ok(());
+            }
+
+            if let Some(dl) = deadline
+                && Instant::now() >= dl
+            {
+                let timeout_display = if timeout_secs == 0 {
+                    "∞".to_owned()
+                } else {
+                    timeout_secs.to_string()
+                };
+                return Err(ImageAnalysisError::HttpClientError {
+                    error: format!(
+                        "Timed out waiting for Immich after {timeout_display}s: {last_err}"
+                    ),
+                });
+            }
+
+            info!("Attempt {attempt}, retrying in {retry_interval}s (last error: {last_err})");
+            tokio::time::sleep(Duration::from_secs(retry_interval)).await;
+        }
     }
 
     /// Fetches all assets from the Immich library.

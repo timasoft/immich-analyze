@@ -23,6 +23,7 @@ The application supports two data access modes:
 - Prompt enrichment: optionally enrich AI prompts with asset metadata (EXIF, location, camera info, people with ages, tags, resolution, MIME type) - works **only** in Immich API mode
 - Selective description updates: use `--preserve-human` with any overwrite policy to preserve human-written text outside `[AI]...[/AI]` blocks; use `--overwrite-policy missing-ai` to process only assets without existing AI blocks
 - Structured logging via `env_logger` (configure with `RUST_LOG` environment variable)
+- Wait for Immich to become available on startup (API mode only, configurable timeout)
 
 ## Prerequisites
 
@@ -205,6 +206,9 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `IMMICH_ANALYZE_MAX_RETRIES` | Maximum retry attempts (0 = infinite) | `0` |
 | `IMMICH_ANALYZE_RETRY_DELAY_SECONDS` | Delay between retry cycles in seconds | `5` |
 | `IMMICH_ANALYZE_HEALTH_PORT` | Port for health check HTTP server (0 to disable) | `3000` |
+| `IMMICH_ANALYZE_WAIT_FOR_IMMICH` | Wait for Immich to become available on startup (API mode only) | `true` |
+| `IMMICH_ANALYZE_WAIT_TIMEOUT` | Maximum time in seconds to wait for Immich (0 = no limit) | `120` |
+| `IMMICH_ANALYZE_WAIT_RETRY_INTERVAL` | Interval in seconds between retry attempts when waiting | `5` |
 | `RUST_LOG` | Logging level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
 
 > **Default prompt**: `Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long.`
@@ -273,6 +277,12 @@ Options:
           Disable [AI]...[/AI] wrapper around AI-generated description
       --no-final-output
           Disable final output with analysis results and statistics after batch processing
+      --no-wait-for-immich
+          Disable waiting for Immich to become available on startup (API mode only)
+      --wait-timeout <WAIT_TIMEOUT>
+          Maximum time in seconds to wait for Immich to become available (0 = no limit) [default: 120]
+      --wait-retry-interval <WAIT_RETRY_INTERVAL>
+          Interval in seconds between retry attempts when waiting for Immich [default: 5]
       --health-port <HEALTH_PORT>
           Port for health check HTTP server (0 to disable) [default: 3000]
   -h, --help
@@ -508,7 +518,7 @@ RUST_LOG=debug immich-analyze --combined ...
 - For llama.cpp: `curl http://localhost:8080/health`
 
 ### API Mode Issues
-- Verify `IMMICH_API_URL` is reachable: `curl $IMMICH_API_URL/api/server-info`
+- Verify `IMMICH_API_URL` is reachable: `curl $IMMICH_API_URL/api/server/ping`
 - Verify API key has sufficient permissions in Immich admin panel
 - Check Immich server logs for authentication errors
 

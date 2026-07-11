@@ -128,6 +128,15 @@ pub struct Args {
     /// Disable final output with analysis results and statistics after batch processing
     #[arg(long, default_value_t = false)]
     pub no_final_output: bool,
+    /// Disable waiting for Immich to become available on startup (API mode only)
+    #[arg(long, default_value_t = false)]
+    pub no_wait_for_immich: bool,
+    /// Maximum time in seconds to wait for Immich to become available (0 = no limit)
+    #[arg(long, default_value_t = 120)]
+    pub wait_timeout: u64,
+    /// Interval in seconds between retry attempts when waiting for Immich
+    #[arg(long, default_value_t = 5)]
+    pub wait_retry_interval: u64,
     /// Port for health check HTTP server (0 to disable)
     #[arg(long, default_value_t = 3000)]
     pub health_port: u16,
