@@ -173,6 +173,15 @@ monitor.file_queued:
 monitor.skipping_duplicate_event:
   en: " Skipping duplicate event for: %{filename} (cooldown %{cooldown}s)"
   ru: " Пропускаем дублирующее событие для: %{filename} (cooldown %{cooldown}s)"
+
+# Wait for Immich
+main.waiting_for_immich:
+  en: " Waiting for Immich to become available (timeout: %{timeout}s)..."
+  ru: " Ожидание доступности Immich (таймаут: %{timeout}с)..."
+main.immich_ready:
+  en: " Immich is ready"
+  ru: " Immich готов"
+
 # Database messages
 database.error_checking_description:
   en: " Error checking description: %{error}"

@@ -99,6 +99,10 @@ if [ "${IMMICH_ANALYZE_NO_FINAL_OUTPUT:-false}" = "true" ]; then
     args+=("--no-final-output")
 fi
 
+if [[ "${IMMICH_ANALYZE_WAIT_FOR_IMMICH:-true}" = "false" ]]; then
+    args+=("--no-wait-for-immich")
+fi
+
 # Numeric validations
 if [[ "$IMMICH_ANALYZE_MAX_CONCURRENT" =~ ^[0-9]+$ ]]; then
     args+=("--max-concurrent" "$IMMICH_ANALYZE_MAX_CONCURRENT")
@@ -126,6 +130,14 @@ fi
 
 if [[ "$IMMICH_ANALYZE_RETRY_DELAY_SECONDS" =~ ^[0-9]+$ ]]; then
     args+=("--retry-delay-seconds" "$IMMICH_ANALYZE_RETRY_DELAY_SECONDS")
+fi
+
+if [[ "$IMMICH_ANALYZE_WAIT_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    args+=("--wait-timeout" "$IMMICH_ANALYZE_WAIT_TIMEOUT")
+fi
+
+if [[ "$IMMICH_ANALYZE_WAIT_RETRY_INTERVAL" =~ ^[0-9]+$ ]]; then
+    args+=("--wait-retry-interval" "$IMMICH_ANALYZE_WAIT_RETRY_INTERVAL")
 fi
 
 echo "Running immich-analyze with args: ${args[@]}"
