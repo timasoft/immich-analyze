@@ -70,7 +70,7 @@ pub struct ExifInfo {
     #[serde(default)]
     pub iso: Option<u32>,
     #[serde(default)]
-    pub rating: Option<u8>,
+    pub rating: Option<i8>,
     #[serde(default)]
     pub time_zone: Option<String>,
 }

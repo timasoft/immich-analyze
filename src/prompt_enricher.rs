@@ -15,7 +15,7 @@ pub struct PromptContext {
     pub f_number: Option<f64>,
     pub focal_length: Option<f64>,
     pub iso: Option<u32>,
-    pub rating: Option<u8>,
+    pub rating: Option<i8>,
     pub time_zone: Option<String>,
     pub original_file_name: Option<String>,
     pub asset_type: Option<String>,
@@ -92,7 +92,7 @@ impl PromptContext {
         self
     }
 
-    pub const fn with_rating(mut self, rating: Option<u8>) -> Self {
+    pub const fn with_rating(mut self, rating: Option<i8>) -> Self {
         self.rating = rating;
         self
     }
