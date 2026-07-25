@@ -1,7 +1,10 @@
 use crate::{
     args::Interface,
     error::ImageAnalysisError,
-    utils::{extract_uuid_from_preview_filename, filename_from_path, read_image_as_base64},
+    utils::{
+        extract_uuid_from_preview_filename, filename_from_path, format_error_chain,
+        read_image_as_base64,
+    },
 };
 use log::{debug, error, info, warn};
 use reqwest::Client;
@@ -278,7 +281,7 @@ impl HostManager {
                                 error!("Failed to read response body: {err}");
                                 ImageAnalysisError::ProcessingError {
                                     filename: filename.clone(),
-                                    error: err.to_string(),
+                                    error: format_error_chain(&err),
                                 }
                             })?;
 
@@ -323,7 +326,7 @@ impl HostManager {
                                     );
                                     let error = ImageAnalysisError::JsonParsing {
                                         filename: filename.clone(),
-                                        error: parse_error.to_string(),
+                                        error: format_error_chain(&parse_error),
                                     };
                                     if !error.is_retryable() {
                                         return Err(error);
@@ -357,7 +360,7 @@ impl HostManager {
                         last_error = Some(ImageAnalysisError::HttpError {
                             status: 0,
                             filename: filename.clone(),
-                            response: err.to_string(),
+                            response: format_error_chain(&err),
                         });
                     }
                     Err(_) => {

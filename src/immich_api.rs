@@ -1,4 +1,4 @@
-use crate::error::ImageAnalysisError;
+use crate::{error::ImageAnalysisError, utils::format_error_chain};
 use log::{info, warn};
 use reqwest::{
     Client,
@@ -149,7 +149,7 @@ impl ImmichApiProvider {
     pub fn new(base_url_str: &str, api_keys: &[String]) -> Result<Self, ImageAnalysisError> {
         let base_url =
             Url::parse(base_url_str).map_err(|err| ImageAnalysisError::InvalidConfig {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })?;
 
         let clients: Vec<Client> = api_keys
@@ -165,7 +165,7 @@ impl ImmichApiProvider {
                     .timeout(Duration::from_secs(30))
                     .build()
                     .map_err(|err| ImageAnalysisError::HttpClientError {
-                        error: err.to_string(),
+                        error: format_error_chain(&err),
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -196,7 +196,7 @@ impl ImmichApiProvider {
     ) -> Result<(), ImageAnalysisError> {
         let ping_url = self.base_url.join("/api/server/ping").map_err(|err| {
             ImageAnalysisError::InvalidConfig {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             }
         })?;
 
@@ -231,7 +231,7 @@ impl ImmichApiProvider {
                         last_err = format!("HTTP {}", resp.status());
                     }
                     Err(err) => {
-                        last_err = err.to_string();
+                        last_err = format_error_chain(&err);
                     }
                 }
             }
@@ -306,7 +306,7 @@ impl ImmichApiProvider {
 
         let search_url = self.base_url.join("/api/search/metadata").map_err(|err| {
             ImageAnalysisError::InvalidConfig {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             }
         })?;
 
@@ -335,7 +335,7 @@ impl ImmichApiProvider {
                     .map_err(|err| ImageAnalysisError::HttpError {
                         status: 0,
                         filename: "assets_list".to_owned(),
-                        response: err.to_string(),
+                        response: format_error_chain(&err),
                     })?;
 
                 if !response.status().is_success() {
@@ -360,7 +360,7 @@ impl ImmichApiProvider {
                         .await
                         .map_err(|err| ImageAnalysisError::JsonParsing {
                             filename: "assets_list".to_owned(),
-                            error: err.to_string(),
+                            error: format_error_chain(&err),
                         })?;
 
                 if search_result.assets.items.is_empty() {
@@ -402,7 +402,7 @@ impl ImmichApiProvider {
             .base_url
             .join(&format!("/api/assets/{asset_id}/thumbnail?size=preview"))
             .map_err(|err| ImageAnalysisError::InvalidConfig {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })?;
 
         let mut last_error = None;
@@ -417,14 +417,14 @@ impl ImmichApiProvider {
                             .map_err(|err| ImageAnalysisError::HttpError {
                                 status: 0,
                                 filename: asset_id.to_string(),
-                                response: err.to_string(),
+                                response: format_error_chain(&err),
                             })?;
 
                     let temp_path = std::env::temp_dir().join(format!("{asset_id}_preview.tmp"));
                     tokio::fs::write(&temp_path, &bytes).await.map_err(|err| {
                         ImageAnalysisError::ProcessingError {
                             filename: asset_id.to_string(),
-                            error: err.to_string(),
+                            error: format_error_chain(&err),
                         }
                     })?;
 
@@ -447,7 +447,7 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: 0,
                         filename: asset_id.to_string(),
-                        response: err.to_string(),
+                        response: format_error_chain(&err),
                     });
                 }
             }
@@ -481,7 +481,7 @@ impl ImmichApiProvider {
             .base_url
             .join(&format!("/api/assets/{asset_id}"))
             .map_err(|err| ImageAnalysisError::InvalidConfig {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })?;
 
         let body = UpdateRequest { description };
@@ -509,7 +509,7 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: 0,
                         filename: asset_id.to_string(),
-                        response: err.to_string(),
+                        response: format_error_chain(&err),
                     });
                 }
             }
@@ -535,7 +535,7 @@ impl ImmichApiProvider {
             .base_url
             .join(&format!("/api/assets/{asset_id}"))
             .map_err(|err| ImageAnalysisError::InvalidConfig {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })?;
 
         let mut last_error = None;
@@ -549,7 +549,7 @@ impl ImmichApiProvider {
                             .await
                             .map_err(|err| ImageAnalysisError::JsonParsing {
                                 filename: asset_id.to_string(),
-                                error: err.to_string(),
+                                error: format_error_chain(&err),
                             })?;
 
                     return Ok(asset
@@ -575,7 +575,7 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: 0,
                         filename: asset_id.to_string(),
-                        response: err.to_string(),
+                        response: format_error_chain(&err),
                     });
                 }
             }
@@ -602,7 +602,7 @@ impl ImmichApiProvider {
             .base_url
             .join(&format!("/api/assets/{asset_id}"))
             .map_err(|err| ImageAnalysisError::InvalidConfig {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })?;
 
         for client in &self.clients {
@@ -645,7 +645,7 @@ impl ImmichApiProvider {
             .base_url
             .join(&format!("/api/assets/{asset_id}"))
             .map_err(|err| ImageAnalysisError::InvalidConfig {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })?;
 
         let mut last_error = None;
@@ -659,7 +659,7 @@ impl ImmichApiProvider {
                             .await
                             .map_err(|err| ImageAnalysisError::JsonParsing {
                                 filename: asset_id.to_string(),
-                                error: err.to_string(),
+                                error: format_error_chain(&err),
                             })?;
 
                     return Ok(metadata);
@@ -681,7 +681,7 @@ impl ImmichApiProvider {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: 0,
                         filename: asset_id.to_string(),
-                        response: err.to_string(),
+                        response: format_error_chain(&err),
                     });
                 }
             }

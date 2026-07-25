@@ -1,6 +1,8 @@
 use crate::error::ImageAnalysisError;
 use crate::immich_api::{AssetMetadata, AssetRef, ImmichApiProvider};
-use crate::utils::{extract_uuid_from_preview_filename, filename_from_path, is_preview_filename};
+use crate::utils::{
+    extract_uuid_from_preview_filename, filename_from_path, format_error_chain, is_preview_filename,
+};
 use clap::ValueEnum;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -293,7 +295,7 @@ impl DataAccess {
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 Err(err) => Err(ImageAnalysisError::IoError {
                     path: path.display().to_string(),
-                    error: err.to_string(),
+                    error: format_error_chain(&err),
                 }),
             }
         } else {
