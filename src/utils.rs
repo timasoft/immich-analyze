@@ -5,7 +5,7 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use log::warn;
 use regex::Regex;
-use std::{borrow::Cow, path::Path, str::FromStr as _, sync::OnceLock};
+use std::{borrow::Cow, error::Error, path::Path, str::FromStr as _, sync::OnceLock};
 use tokio::io::AsyncReadExt as _;
 use uuid::Uuid;
 
@@ -95,7 +95,7 @@ pub async fn read_image_as_base64(
     let metadata = tokio::fs::metadata(image_path).await.map_err(|err| {
         ImageAnalysisError::ProcessingError {
             filename: filename.to_owned(),
-            error: err.to_string(),
+            error: format_error_chain(&err),
         }
     })?;
     if metadata.len() == 0 {
@@ -106,7 +106,7 @@ pub async fn read_image_as_base64(
     let mut image_file = tokio::fs::File::open(image_path).await.map_err(|err| {
         ImageAnalysisError::ProcessingError {
             filename: filename.to_owned(),
-            error: err.to_string(),
+            error: format_error_chain(&err),
         }
     })?;
     let mut image_data = Vec::new();
@@ -115,7 +115,7 @@ pub async fn read_image_as_base64(
         .await
         .map_err(|err| ImageAnalysisError::ProcessingError {
             filename: filename.to_owned(),
-            error: err.to_string(),
+            error: format_error_chain(&err),
         })?;
     Ok(STANDARD.encode(&image_data))
 }
@@ -230,7 +230,7 @@ pub fn determine_locale(
     "en".to_owned()
 }
 
-pub fn validate_args(args: &crate::args::Args) -> Result<(), Box<dyn std::error::Error>> {
+pub fn validate_args(args: &crate::args::Args) -> Result<(), Box<dyn Error>> {
     if args.combined && args.monitor {
         eprintln!("{}", rust_i18n::t!("error.incompatible_flags"));
         eprintln!("{}", rust_i18n::t!("error.combined_monitor_conflict"));
@@ -246,7 +246,7 @@ pub fn validate_args(args: &crate::args::Args) -> Result<(), Box<dyn std::error:
     }
 }
 
-pub fn validate_immich_directory(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn validate_immich_directory(path: &Path) -> Result<(), Box<dyn Error>> {
     if !path.exists() {
         return Err(format!(
             "{}",
@@ -265,4 +265,17 @@ pub fn validate_immich_directory(path: &Path) -> Result<(), Box<dyn std::error::
         .into());
     }
     Ok(())
+}
+
+/// Format the full error chain (including `source()`) so that serde field names
+/// and byte offsets are not discarded by a bare `.to_string()`.
+pub fn format_error_chain(err: &dyn Error) -> String {
+    let mut msg = err.to_string();
+    let mut source = err.source();
+    while let Some(inner) = source {
+        msg.push_str(". Caused by: ");
+        msg.push_str(&inner.to_string());
+        source = inner.source();
+    }
+    msg
 }

@@ -24,7 +24,10 @@ use data_access::{DataAccess, DataAccessMode};
 use file_processing::process_files_concurrently;
 use monitor::monitor_folder;
 use progress::SimpleProgress;
-use utils::{determine_locale, get_system_locale, validate_args, validate_immich_directory};
+use utils::{
+    determine_locale, format_error_chain, get_system_locale, validate_args,
+    validate_immich_directory,
+};
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -61,7 +64,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(err) = connection.await {
                     eprintln!(
                         "{}",
-                        rust_i18n::t!("error.postgres_connection_error", error = err.to_string())
+                        rust_i18n::t!(
+                            "error.postgres_connection_error",
+                            error = format_error_chain(&err)
+                        )
                     );
                 }
             });
@@ -73,7 +79,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(err) = database::check_database_connection(&pg_client_arc).await {
                 eprintln!(
                     "{}",
-                    rust_i18n::t!("error.database_connection_failed", error = err.to_string())
+                    rust_i18n::t!(
+                        "error.database_connection_failed",
+                        error = format_error_chain(&err)
+                    )
                 );
                 std::process::exit(1);
             }
@@ -142,7 +151,10 @@ async fn run_combined_mode(
             if let Err(err) = run_batch_mode(&args_clone, &data_access_clone, &locale_clone).await {
                 eprintln!(
                     "{}",
-                    rust_i18n::t!("error.batch_mode_failed", error = err.to_string())
+                    rust_i18n::t!(
+                        "error.batch_mode_failed",
+                        error = format_error_chain(err.as_ref())
+                    )
                 );
             }
             println!("{}", rust_i18n::t!("main.batch_mode_completed"));

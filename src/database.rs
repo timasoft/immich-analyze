@@ -1,6 +1,7 @@
 use crate::{
     error::ImageAnalysisError,
     immich_api::{AssetMetadata, ExifInfo, PersonInfo, TagInfo},
+    utils::format_error_chain,
 };
 use log::{debug, warn};
 use serde::Serialize;
@@ -32,11 +33,11 @@ pub async fn get_asset_description(
                 "{}",
                 rust_i18n::t!(
                     "database.error_checking_description",
-                    error = err.to_string()
+                    error = format_error_chain(&err)
                 )
             );
             Err(ImageAnalysisError::DatabaseError {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })
         }
     }
@@ -62,11 +63,11 @@ pub async fn asset_has_description(
                 "{}",
                 rust_i18n::t!(
                     "database.error_checking_description",
-                    error = err.to_string()
+                    error = format_error_chain(&err)
                 )
             );
             Err(ImageAnalysisError::DatabaseError {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })
         }
     }
@@ -85,11 +86,11 @@ pub async fn check_asset_exists(
                 "{}",
                 rust_i18n::t!(
                     "database.asset_existence_check_error",
-                    error = err.to_string()
+                    error = format_error_chain(&err)
                 )
             );
             Err(ImageAnalysisError::DatabaseError {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })
         }
     }
@@ -144,12 +145,12 @@ pub async fn update_or_create_asset_description(
                 rust_i18n::t!(
                     "database.insert_error",
                     asset_id = asset_id,
-                    error = err.to_string()
+                    error = format_error_chain(&err)
                 ),
                 rust_i18n::t!("database.sql_query_details", query = upsert_query)
             );
             Err(ImageAnalysisError::DatabaseError {
-                error: err.to_string(),
+                error: format_error_chain(&err),
             })
         }
     }
@@ -332,12 +333,15 @@ pub async fn check_database_connection(client: &PgClient) -> Result<bool, ImageA
         Ok(Err(err)) => {
             eprintln!(
                 "{}",
-                rust_i18n::t!("error.database_query_failed", error = err.to_string())
+                rust_i18n::t!(
+                    "error.database_query_failed",
+                    error = format_error_chain(&err)
+                )
             );
             Err(ImageAnalysisError::DatabaseError {
                 error: format!(
                     "{}",
-                    rust_i18n::t!("error.query_failed_error", error = err.to_string())
+                    rust_i18n::t!("error.query_failed_error", error = format_error_chain(&err))
                 ),
             })
         }
