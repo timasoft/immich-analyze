@@ -233,7 +233,7 @@ pub async fn get_asset_metadata(
             )
         });
         let rating = rating_raw.and_then(|value| {
-            u8::try_from(value).map_or_else(
+            i8::try_from(value).map_or_else(
                 |_| {
                     debug!("Invalid rating value for asset {asset_id}: {value}");
                     None
