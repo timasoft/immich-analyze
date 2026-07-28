@@ -10,7 +10,7 @@ keywords = ["immich", "ai", "image-analysis", "ollama", "photo-management"]
 categories = ["command-line-utilities", "multimedia::images"]
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 chrono = "0.4.44"
 clap = { version = "4.6", features = ["derive", "env"] }
 env_logger = "0.11"
