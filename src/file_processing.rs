@@ -150,6 +150,7 @@ pub async fn process_files_concurrently(
         Duration::from_secs(args.retry_delay_seconds),
         unavailable_duration,
         args.api_key.clone(),
+        args.max_tokens,
     ));
 
     stream::iter(assets.into_iter().map(|asset| {

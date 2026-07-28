@@ -24,15 +24,26 @@ impl Interface {
         match self {
             Self::Ollama => "/api/chat",
             Self::Llamacpp => "/v1/chat/completions",
+            Self::Claude => "/v1/messages",
         }
     }
 
-    /// Returns `true` if the interface supports Bearer token authentication.
+    /// Returns the auth header name and value prefix for the interface, if any.
     #[inline]
-    pub const fn supports_bearer_auth(self) -> bool {
+    pub const fn auth_header(self) -> Option<(&'static str, &'static str)> {
         match self {
-            Self::Ollama => false,
-            Self::Llamacpp => true,
+            Self::Ollama => None,
+            Self::Llamacpp => Some(("Authorization", "Bearer ")),
+            Self::Claude => Some(("x-api-key", "")),
+        }
+    }
+
+    /// Returns extra static headers required by the interface.
+    #[inline]
+    pub const fn extra_headers(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Self::Ollama | Self::Llamacpp => &[],
+            Self::Claude => &[("anthropic-version", "2023-06-01")],
         }
     }
 
@@ -50,11 +61,23 @@ impl Interface {
                 .and_then(|choice| choice.get("message"))
                 .and_then(|msg| msg.get("content"))
                 .and_then(|content| content.as_str()),
+            Self::Claude => json_value
+                .get("content")
+                .and_then(|content| content.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|block| block.get("text"))
+                .and_then(|text| text.as_str()),
         }
     }
 
     /// Builds the JSON request body specific to the AI service interface.
-    pub fn build_request_body(self, model_name: &str, prompt: &str, base64_image: &str) -> Value {
+    pub fn build_request_body(
+        self,
+        model_name: &str,
+        prompt: &str,
+        base64_image: &str,
+        max_tokens: u32,
+    ) -> Value {
         match self {
             Self::Ollama => serde_json::json!({
                 "model": model_name,
@@ -66,6 +89,9 @@ impl Interface {
                     }
                 ],
                 "stream": false,
+                "options": {
+                    "num_predict": max_tokens
+                },
             }),
             Self::Llamacpp => serde_json::json!({
                 "model": model_name,
@@ -86,7 +112,31 @@ impl Interface {
                         ]
                     }
                 ],
+                "max_tokens": max_tokens,
                 "stream": false,
+            }),
+            Self::Claude => serde_json::json!({
+                "model": model_name,
+                "max_tokens": max_tokens,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": prompt
+                            },
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": base64_image
+                                }
+                            }
+                        ]
+                    }
+                ]
             }),
         }
     }
@@ -104,6 +154,7 @@ pub struct HostManager {
     unavailable_hosts: Arc<Mutex<HashMap<String, Instant>>>,
     unavailable_duration: Duration,
     api_key: Option<String>,
+    max_tokens: u32,
 }
 
 impl HostManager {
@@ -118,6 +169,7 @@ impl HostManager {
         retry_delay: Duration,
         unavailable_duration: Duration,
         api_key: Option<String>,
+        max_tokens: u32,
     ) -> Self {
         Self {
             hosts,
@@ -130,6 +182,7 @@ impl HostManager {
             unavailable_hosts: Arc::new(Mutex::new(HashMap::new())),
             unavailable_duration,
             api_key,
+            max_tokens,
         }
     }
 
@@ -210,9 +263,12 @@ impl HostManager {
         let asset_id = extract_uuid_from_preview_filename(&filename)?;
         let base64_image = read_image_as_base64(image_path, &filename).await?;
 
-        let request_body =
-            self.interface
-                .build_request_body(&self.model_name, prompt, &base64_image);
+        let request_body = self.interface.build_request_body(
+            &self.model_name,
+            prompt,
+            &base64_image,
+            self.max_tokens,
+        );
 
         let endpoint = self.interface.endpoint();
 
@@ -249,13 +305,20 @@ impl HostManager {
 
                 let mut request = self.client.post(&url).json(&request_body);
 
-                if self.interface.supports_bearer_auth() {
+                if let Some((header_name, prefix)) = self.interface.auth_header() {
                     if let Some(api_key) = &self.api_key {
-                        debug!("Adding Authorization header with API key");
-                        request = request.header("Authorization", format!("Bearer {api_key}"));
+                        debug!(
+                            "Adding {header_name} header with API key for {:?}",
+                            self.interface
+                        );
+                        request = request.header(header_name, format!("{prefix}{api_key}"));
                     } else {
                         debug!("No API key provided for {:?} request", self.interface);
                     }
+                }
+
+                for (name, value) in self.interface.extra_headers() {
+                    request = request.header(*name, *value);
                 }
 
                 match tokio::time::timeout(

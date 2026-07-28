@@ -4,7 +4,7 @@ AI-powered image description generator for Immich photo management system
 
 ## Overview
 
-Immich Analyze automatically generates detailed descriptions for images in your Immich library using AI vision models via **Ollama** or **llama.cpp server**. This enhances search capabilities and organization by providing semantic understanding of image content.
+Immich Analyze automatically generates detailed descriptions for images in your Immich library using AI vision models via **Ollama**, **llama.cpp server**, or **Anthropic Claude API** (not recommended). This enhances search capabilities and organization by providing semantic understanding of image content.
 
 The application supports two data access modes:
 - **Database mode**: Direct PostgreSQL database access for reading/writing Immich metadata. Note: this mode is planned for removal in a future release (0.5.0 or 0.6.0) since the Immich team does not support direct database access, and schema changes may break compatibility without notice.
@@ -32,7 +32,8 @@ The application supports two data access modes:
   - Immich API endpoint with API key
 - AI service running a vision-capable model:
   - **Ollama** server (e.g., `qwen3-vl:4b-thinking-q4_K_M`), OR
-  - **llama.cpp server** with OpenAI-compatible API endpoint
+  - **llama.cpp server** with OpenAI-compatible API endpoint, OR
+  - **Anthropic Claude API** (not recommended - only use if you have no other option)
 
 ## Installation
 
@@ -75,7 +76,7 @@ services:
       - .env
     environment:
       # AI service configuration
-      - IMMICH_ANALYZE_INTERFACE=ollama  # or "llamacpp"
+      - IMMICH_ANALYZE_INTERFACE=ollama  # or "llamacpp" or "claude"
       - IMMICH_ANALYZE_HOSTS=http://ollama:11434
       # For llama.cpp server with authentication:
       # - IMMICH_ANALYZE_INTERFACE=llamacpp
@@ -101,10 +102,10 @@ networks:
   - Database credentials (`DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE_NAME`) for direct PostgreSQL access (planned for removal in 0.5.0 or 0.6.0), OR
   - API credentials (`IMMICH_API_URL`, `IMMICH_API_KEY`) for Immich API access
 - **Volume mounts**: The `/data` volume mount is only required when using **database mode** (to access `upload/` and `thumbs/` directories). When using **API mode**, this volume can be omitted.
-- The `ollama` service is **optional** - you can remove it and use an external Ollama or llama.cpp server instead
-- Set `IMMICH_ANALYZE_INTERFACE` to `ollama` (default) or `llamacpp` depending on your backend
+- The `ollama` service is **optional** - you can remove it and use an external Ollama, llama.cpp server, or Anthropic Claude API instead
+- Set `IMMICH_ANALYZE_INTERFACE` to `ollama` (default), `llamacpp`, or `claude` depending on your backend
 - If using external service, modify `IMMICH_ANALYZE_HOSTS` to point to your server(s)
-- For llama.cpp server, provide `IMMICH_ANALYZE_API_KEY` if authentication is enabled
+- For llama.cpp server or Claude API, provide `IMMICH_ANALYZE_API_KEY` if authentication is enabled
 - After adding the Ollama service, you need to pull the model manually by executing:
   ```bash
   docker exec -it ollama ollama pull qwen3-vl:4b-thinking-q4_K_M
@@ -181,9 +182,10 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `IMMICH_ANALYZE_INTERFACE` | AI service interface type (`ollama` or `llamacpp`) | `ollama` |
+| `IMMICH_ANALYZE_INTERFACE` | AI service interface type (`ollama`, `llamacpp`, or `claude`) | `ollama` |
 | `IMMICH_ANALYZE_HOSTS` | Comma-separated AI service host URLs | `http://localhost:11434` |
-| `IMMICH_ANALYZE_API_KEY` | API key for llama.cpp server authentication | *(none)* |
+| `IMMICH_ANALYZE_API_KEY` | API key for llama.cpp server or Anthropic Claude API authentication | *(none)* |
+| `IMMICH_ANALYZE_MAX_TOKENS` | Maximum tokens for AI response | `4294967295` (unlimited) |
 | `IMMICH_ANALYZE_MODEL_NAME` | Model name for image analysis | `qwen3-vl:4b-thinking-q4_K_M` |
 | `IMMICH_ANALYZE_PROMPT` | Prompt for generating image descriptions | *See below* |
 | `IMMICH_ANALYZE_ENRICH_PROMPT` | Enable prompt enrichment with asset metadata (API mode only) | `false` |
@@ -244,13 +246,15 @@ Options:
       --api-poll-interval <API_POLL_INTERVAL>
           API poll interval in seconds (for Immich API mode) [default: 10]
       --model-name <MODEL_NAME>
-          Ollama model name for image analysis [default: qwen3-vl:4b-thinking-q4_K_M]
+          AI model name for image analysis [default: qwen3-vl:4b-thinking-q4_K_M]
       --interface <INTERFACE>
-          AI service interface type [default: ollama] [possible values: ollama, llamacpp]
+          AI service interface type [default: ollama] [possible values: ollama, llamacpp, claude]
       --hosts <HOSTS>
-          Host URLs (Ollama or llama.cpp server) [default: http://localhost:11434]
+          Host URLs (Ollama, llama.cpp server, or Anthropic API) [default: http://localhost:11434]
       --api-key <API_KEY>
-          API key for authentication (llama.cpp server) [env: IMMICH_ANALYZE_API_KEY]
+          API key for authentication (llama.cpp server or Anthropic Claude API) [env: IMMICH_ANALYZE_API_KEY]
+      --max-tokens <MAX_TOKENS>
+          Maximum tokens for AI response [default: 4294967295]
       --max-concurrent <MAX_CONCURRENT>
           Maximum number of concurrent requests [default: 4]
       --unavailable-duration <UNAVAILABLE_DURATION>
@@ -404,6 +408,19 @@ immich-analyze \
   --api-poll-interval 30
 ```
 
+**Batch Processing with Anthropic Claude (not recommended)**
+```bash
+IMMICH_API_URL=http://immich:2283 \
+IMMICH_API_KEY=your_immich_api_key \
+IMMICH_ANALYZE_API_KEY=sk-ant-... \
+immich-analyze \
+  --data-access-mode immich-api \
+  --interface claude \
+  --hosts "https://api.anthropic.com" \
+  --model-name "claude-sonnet-5" \
+  --max-tokens 4096
+```
+
 **Monitor Mode with Infinite Retries**
 ```bash
 IMMICH_API_URL=http://immich:2283 \
@@ -460,14 +477,19 @@ RUST_LOG=debug immich-analyze --combined --data-access-mode database --postgres-
 - `qwen3-vl:30b-a3b-thinking-q4_K_M` - Higher accuracy for complex images
 - `qwen3-vl:2b-instruct-q4_K_M` - Faster processing for simpler descriptions
 
-### For llama.cpp Server:
-- Any GGUF vision model served via llama.cpp's OpenAI-compatible API
-- Recommended: `qwen3-vl-4b-instruct-q4_k_m.gguf` or similar quantized variants
-
 Install Ollama models using:
 ```bash
 ollama pull qwen3-vl:4b-thinking-q4_K_M
 ```
+
+### For llama.cpp Server:
+- Any GGUF vision model served via llama.cpp's OpenAI-compatible API
+- Recommended: `qwen3-vl-4b-instruct-q4_k_m.gguf` or similar quantized variants
+
+### For Claude API (not recommended):
+- Cost-effective vision models (e.g., latest Claude Haiku)
+
+> **Note**: Not recommended for most users due to ongoing API costs and privacy considerations of uploading personal photos to a third party.
 
 ## Architecture
 
@@ -516,6 +538,7 @@ RUST_LOG=debug immich-analyze --combined ...
 ### Check AI service status
 - For Ollama: `systemctl status ollama` or `curl http://localhost:11434/api/tags`
 - For llama.cpp: `curl http://localhost:8080/health`
+- For Claude: Verify your API key is valid and has access to the selected vision model
 
 ### API Mode Issues
 - Verify `IMMICH_API_URL` is reachable: `curl $IMMICH_API_URL/api/server/ping`

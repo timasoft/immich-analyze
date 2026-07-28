@@ -6,6 +6,7 @@ pub enum Interface {
     #[default]
     Ollama,
     Llamacpp,
+    Claude,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -69,18 +70,21 @@ pub struct Args {
     /// API poll interval in seconds (for Immich API mode)
     #[arg(long, default_value_t = 10)]
     pub api_poll_interval: u32,
-    /// Ollama model name for image analysis
+    /// AI model name for image analysis
     #[arg(long, default_value = "qwen3-vl:4b-thinking-q4_K_M")]
     pub model_name: String,
     /// AI service interface type
     #[arg(long, value_enum, default_value = "ollama")]
     pub interface: Interface,
-    /// Host URLs (Ollama or llama.cpp server)
+    /// Host URLs (Ollama, llama.cpp server, or Anthropic API)
     #[arg(long, default_value = "http://localhost:11434", value_delimiter = ',')]
     pub hosts: Vec<String>,
-    /// API key for authentication (llama.cpp server)
+    /// API key for authentication (llama.cpp server or Anthropic Claude API)
     #[arg(long, env = "IMMICH_ANALYZE_API_KEY", hide_env_values = true)]
     pub api_key: Option<String>,
+    /// Maximum tokens for AI response
+    #[arg(long, default_value_t = u32::MAX)]
+    pub max_tokens: u32,
     /// Maximum number of concurrent requests
     #[arg(long, default_value_t = 4)]
     pub max_concurrent: usize,
