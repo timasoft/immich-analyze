@@ -100,6 +100,7 @@ networks:
 - **Data Access Mode**: You must provide EITHER:
   - Database credentials (`DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE_NAME`) for direct PostgreSQL access (planned for removal in 0.5.0 or 0.6.0), OR
   - API credentials (`IMMICH_API_URL`, `IMMICH_API_KEY`) for Immich API access
+- **Explicit mode override**: Set `IMMICH_ANALYZE_DATA_ACCESS_MODE` to `database` or `immich-api` to bypass auto-detection
 - **Volume mounts**: The `/data` volume mount is only required when using **database mode** (to access `upload/` and `thumbs/` directories). When using **API mode**, this volume can be omitted.
 - The `ollama` service is **optional** - you can remove it and use an external Ollama or llama.cpp server instead
 - Set `IMMICH_ANALYZE_INTERFACE` to `ollama` (default) or `llamacpp` depending on your backend
@@ -169,6 +170,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 
 | Variable | Description | Default | Required For |
 |----------|-------------|---------|-------------|
+| `IMMICH_ANALYZE_DATA_ACCESS_MODE` | Explicitly set data access mode: `database` or `immich-api`. When unset, mode is auto-detected from other env vars | - | - |
 | `DB_USERNAME` | PostgreSQL username | - | Database mode (planned for removal in 0.5.0 or 0.6.0) |
 | `DB_PASSWORD` | PostgreSQL password | - | Database mode (planned for removal in 0.5.0 or 0.6.0) |
 | `DB_DATABASE_NAME` | PostgreSQL database name | - | Database mode (planned for removal in 0.5.0 or 0.6.0) |
