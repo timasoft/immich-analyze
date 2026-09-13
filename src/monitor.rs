@@ -16,7 +16,6 @@ use notify::{
     event::ModifyKind,
     {Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _},
 };
-use reqwest::Client;
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -143,15 +142,12 @@ pub async fn process_new_file(
 /// # `ImmichApi` mode
 /// Uses polling via `get_assets_to_process()` to detect new assets.
 pub async fn monitor_folder(
-    model_name: &str,
     data_access: DataAccess,
     prompt: &str,
     config: &MonitorConfig,
+    host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     rust_i18n::set_locale(&config.lang);
-    let http_client = Client::builder()
-        .timeout(Duration::from_secs(config.timeout))
-        .build()?;
 
     let (stop_tx, mut stop_rx) = tokio_mpsc::channel(1);
     // Handle CTRL-C signal
@@ -174,19 +170,6 @@ pub async fn monitor_folder(
             let _: Result<(), tokio_mpsc::error::SendError<()>> = stop_tx.send(()).await;
         }
     });
-
-    let unavailable_duration = Duration::from_secs(config.unavailable_duration);
-    let host_manager = Arc::new(HostManager::new(
-        config.hosts.clone(),
-        config.interface,
-        http_client.clone(),
-        model_name.to_owned(),
-        config.timeout,
-        config.max_retries,
-        Duration::from_secs(config.retry_delay_seconds),
-        unavailable_duration,
-        config.api_key.clone(),
-    ));
 
     let bg_ctx = BackgroundCtx {
         data_access: data_access.clone(),

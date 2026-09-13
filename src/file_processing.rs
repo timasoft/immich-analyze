@@ -15,12 +15,9 @@ use crate::{
 };
 use futures::stream::{self, StreamExt as _};
 use log::{error, warn};
-use reqwest::Client;
 use std::{
-    num::NonZeroU32,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 use tokio::sync::Mutex;
 
@@ -131,27 +128,12 @@ async fn process_file(
 
 pub async fn process_files_concurrently(
     assets: Vec<AssetRef>,
-    http_client: &Client,
     data_access: &DataAccess,
     args: &crate::args::Args,
     locale: &str,
     progress: Arc<Mutex<SimpleProgress>>,
+    host_manager: Arc<HostManager>,
 ) -> Vec<(String, Result<ImageAnalysisResult, ImageAnalysisError>)> {
-    // Create host manager once for all files to preserve unavailable host state
-    let unavailable_duration = Duration::from_secs(args.unavailable_duration);
-
-    let host_manager = Arc::new(HostManager::new(
-        args.hosts.clone(),
-        args.interface,
-        http_client.clone(),
-        args.model_name.clone(),
-        args.timeout,
-        NonZeroU32::new(args.max_retries),
-        Duration::from_secs(args.retry_delay_seconds),
-        unavailable_duration,
-        args.api_key.clone(),
-    ));
-
     stream::iter(assets.into_iter().map(|asset| {
         let prompt = args.prompt.clone();
         let progress_clone = Arc::clone(&progress);

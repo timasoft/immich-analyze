@@ -123,6 +123,10 @@ if [[ "${IMMICH_ANALYZE_WAIT_FOR_IMMICH:-true}" = "false" ]]; then
     args+=("--no-wait-for-immich")
 fi
 
+if [[ "${IMMICH_ANALYZE_PREFLIGHT_MODEL_CHECK:-true}" = "false" ]]; then
+    args+=("--no-preflight-model-check")
+fi
+
 # Numeric validations
 if [[ "$IMMICH_ANALYZE_MAX_CONCURRENT" =~ ^[0-9]+$ ]]; then
     args+=("--max-concurrent" "$IMMICH_ANALYZE_MAX_CONCURRENT")

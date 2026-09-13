@@ -41,6 +41,14 @@ pub enum ImageAnalysisError {
     IoError { path: String, error: String },
     #[error("Asset not found: {asset_id}")]
     AssetNotFound { asset_id: Uuid },
+    #[error("No AI service hosts configured")]
+    NoHostsConfigured,
+    #[error("AI service {host} does not serve model '{model}'")]
+    ModelNotFound {
+        model: String,
+        host: String,
+        closest: Option<String>,
+    },
 }
 
 impl ImageAnalysisError {
@@ -95,23 +103,38 @@ impl ImageAnalysisError {
                 rust_i18n::t!("error.critical_processing_error", filename = filename),
                 self
             ),
-            Self::InvalidImmichStructure { error }
-            | Self::InvalidConfig { error }
-            | Self::HttpClientError { error } => format!(
-                "{}\n{}",
-                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
-                error
-            ),
-            Self::InvalidApiKey => format!(
-                "{}\n{}",
-                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
-                self
-            ),
+            Self::HttpClientError { error } => {
+                rust_i18n::t!("error.ai_host_connection_failed", error = error).to_string()
+            }
+            Self::InvalidImmichStructure { error } => {
+                rust_i18n::t!("error.invalid_immich_structure", error = error).to_string()
+            }
+            Self::InvalidConfig { error } => {
+                rust_i18n::t!("error.invalid_config", error = error).to_string()
+            }
+            Self::InvalidApiKey => rust_i18n::t!("error.invalid_api_key").to_string(),
             Self::IoError { path, error } => {
                 rust_i18n::t!("error.io_error", path = path, error = error).to_string()
             }
             Self::AssetNotFound { asset_id } => {
                 rust_i18n::t!("database.asset_not_in_table", asset_id = asset_id).to_string()
+            }
+            Self::NoHostsConfigured => rust_i18n::t!("error.no_hosts_configured").to_string(),
+            Self::ModelNotFound {
+                model,
+                host,
+                closest,
+            } => {
+                let message =
+                    rust_i18n::t!("error.model_not_found", model = model, host = host).to_string();
+                if let Some(nearest) = closest {
+                    format!(
+                        "{message}\n{}",
+                        rust_i18n::t!("error.did_you_mean", model = nearest)
+                    )
+                } else {
+                    message
+                }
             }
         }
     }
@@ -141,7 +164,9 @@ impl ImageAnalysisError {
             | Self::ProcessingError { .. }
             | Self::FileWriteTimeout { .. }
             | Self::IoError { .. }
-            | Self::AssetNotFound { .. } => false,
+            | Self::AssetNotFound { .. }
+            | Self::NoHostsConfigured
+            | Self::ModelNotFound { .. } => false,
         }
     }
 }

@@ -1069,6 +1069,7 @@ dependencies = [
  "rust-i18n",
  "serde",
  "serde_json",
+ "strsim",
  "thiserror 2.0.20",
  "tokio",
  "tokio-postgres",

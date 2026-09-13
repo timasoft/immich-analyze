@@ -24,6 +24,7 @@ The application supports two data access modes:
 - Selective description updates: use `--preserve-human` with any overwrite policy to preserve human-written text outside `[AI]...[/AI]` blocks; use `--overwrite-policy missing-ai` to process only assets without existing AI blocks
 - Structured logging via `env_logger` (configure with `RUST_LOG` environment variable)
 - Wait for Immich to become available on startup (API mode only, configurable timeout)
+- Startup model existence check against the configured AI hosts (skippable via `--no-preflight-model-check` / `IMMICH_ANALYZE_PREFLIGHT_MODEL_CHECK=false`). When enabled, any host that does not serve the configured model is blacklisted for the current run and will not be used until the app is restarted; a missing model on *all* hosts aborts startup
 
 ## Prerequisites
 
@@ -211,6 +212,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `IMMICH_ANALYZE_WAIT_FOR_IMMICH` | Wait for Immich to become available on startup (API mode only) | `true` |
 | `IMMICH_ANALYZE_WAIT_TIMEOUT` | Maximum time in seconds to wait for Immich (0 = no limit) | `120` |
 | `IMMICH_ANALYZE_WAIT_RETRY_INTERVAL` | Interval in seconds between retry attempts when waiting | `5` |
+| `IMMICH_ANALYZE_PREFLIGHT_MODEL_CHECK` | Verify on startup that the configured model is served by at least one of the AI hosts | `true` |
 | `RUST_LOG` | Logging level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
 
 > **Default prompt**: `Create a detailed description for the image for proper image search functionality. In the response, provide only the description without introductory words. Also specify the image format (Wallpaper, Screenshot, Drawing, City photo, Selfie, etc.). The format must be correct. If in doubt, name the most likely option and don't think too long.`
@@ -253,6 +255,8 @@ Options:
           Host URLs (Ollama or llama.cpp server) [default: http://localhost:11434]
       --api-key <API_KEY>
           API key for authentication (llama.cpp server) [env: IMMICH_ANALYZE_API_KEY]
+      --no-preflight-model-check
+          Disable the startup model existence check against the configured AI hosts
       --max-concurrent <MAX_CONCURRENT>
           Maximum number of concurrent requests [default: 4]
       --unavailable-duration <UNAVAILABLE_DURATION>

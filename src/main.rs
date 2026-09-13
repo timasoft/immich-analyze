@@ -1,7 +1,7 @@
 #![warn(non_ascii_idents)]
 
 use clap::Parser as _;
-use std::{path::Path, sync::Arc};
+use std::{num::NonZeroU32, path::Path, sync::Arc, time::Duration};
 use tokio_postgres::NoTls;
 
 mod args;
@@ -22,6 +22,7 @@ use args::{Args, OverwritePolicy};
 use config::MonitorConfig;
 use data_access::{DataAccess, DataAccessMode};
 use file_processing::process_files_concurrently;
+use host_manager::HostManager;
 use monitor::monitor_folder;
 use progress::SimpleProgress;
 use utils::{
@@ -125,12 +126,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(args.timeout))
+        .build()?;
+    let host_manager = Arc::new(HostManager::new(
+        args.hosts.clone(),
+        args.interface,
+        http_client,
+        args.model_name.clone(),
+        args.timeout,
+        NonZeroU32::new(args.max_retries),
+        Duration::from_secs(args.retry_delay_seconds),
+        Duration::from_secs(args.unavailable_duration),
+        args.api_key.clone(),
+    ));
+
+    if !args.no_preflight_model_check
+        && let Err(err) = host_manager
+            .check_model_available_and_mark_unavailable_hosts()
+            .await
+    {
+        eprintln!(
+            "{}",
+            rust_i18n::t!(
+                "error.model_preflight_check_failed",
+                error = err.user_message()
+            )
+        );
+        std::process::exit(1);
+    }
+
     if args.combined {
-        run_combined_mode(args.clone(), &data_access, &final_locale).await?;
+        run_combined_mode(args.clone(), &data_access, &final_locale, host_manager).await?;
     } else if args.monitor {
-        run_monitor_mode(&args, &data_access, &final_locale).await?;
+        run_monitor_mode(&args, &data_access, &final_locale, host_manager).await?;
     } else {
-        run_batch_mode(&args, &data_access, &final_locale).await?;
+        run_batch_mode(&args, &data_access, &final_locale, host_manager).await?;
     }
 
     Ok(())
@@ -140,15 +171,24 @@ async fn run_combined_mode(
     args: Args,
     data_access: &DataAccess,
     locale: &str,
+    host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.combined_mode_activated"));
     let batch_handle = {
         let args_clone = args.clone();
         let data_access_clone = data_access.clone();
         let locale_clone = locale.to_owned();
+        let host_manager_clone = Arc::clone(&host_manager);
         tokio::spawn(async move {
             println!("{}", rust_i18n::t!("main.processing_existing_images"));
-            if let Err(err) = run_batch_mode(&args_clone, &data_access_clone, &locale_clone).await {
+            if let Err(err) = run_batch_mode(
+                &args_clone,
+                &data_access_clone,
+                &locale_clone,
+                host_manager_clone,
+            )
+            .await
+            {
                 eprintln!(
                     "{}",
                     rust_i18n::t!(
@@ -164,7 +204,7 @@ async fn run_combined_mode(
         "{}",
         rust_i18n::t!("main.monitor_mode_started_in_background")
     );
-    run_monitor_mode(&args, data_access, locale).await?;
+    run_monitor_mode(&args, data_access, locale, host_manager).await?;
     let _: Result<(), tokio::task::JoinError> = batch_handle.await;
     Ok(())
 }
@@ -173,6 +213,7 @@ async fn run_monitor_mode(
     args: &Args,
     data_access: &DataAccess,
     locale: &str,
+    host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.monitor_mode_activated"));
     let overwrite_policy = args.effective_overwrite_policy();
@@ -183,10 +224,10 @@ async fn run_monitor_mode(
     }
     let monitor_config = MonitorConfig::from_args(args, locale);
     monitor_folder(
-        &args.model_name,
         data_access.clone(),
         &args.prompt,
         &monitor_config,
+        host_manager,
     )
     .await?;
     Ok(())
@@ -196,6 +237,7 @@ async fn run_batch_mode(
     args: &Args,
     data_access: &DataAccess,
     locale: &str,
+    host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "{}",
@@ -230,17 +272,13 @@ async fn run_batch_mode(
         OverwritePolicy::None => {}
     }
 
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(args.timeout))
-        .build()?;
-
     let progress = Arc::new(tokio::sync::Mutex::new(SimpleProgress::new(
         assets.len() as u64,
         &rust_i18n::t!("progress.processing_complete"),
     )));
 
     let results =
-        process_files_concurrently(assets, &http_client, data_access, args, locale, progress).await;
+        process_files_concurrently(assets, data_access, args, locale, progress, host_manager).await;
 
     if !args.no_final_output {
         file_processing::display_results(&results, args.max_concurrent > 1);
