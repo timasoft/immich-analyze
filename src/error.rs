@@ -103,18 +103,16 @@ impl ImageAnalysisError {
                 rust_i18n::t!("error.critical_processing_error", filename = filename),
                 self
             ),
-            Self::InvalidImmichStructure { error }
-            | Self::InvalidConfig { error }
-            | Self::HttpClientError { error } => format!(
-                "{}\n{}",
-                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
-                error
-            ),
-            Self::InvalidApiKey => format!(
-                "{}\n{}",
-                rust_i18n::t!("error.critical_processing_error", filename = "unknown"),
-                self
-            ),
+            Self::HttpClientError { error } => {
+                rust_i18n::t!("error.ai_host_connection_failed", error = error).to_string()
+            }
+            Self::InvalidImmichStructure { error } => {
+                rust_i18n::t!("error.invalid_immich_structure", error = error).to_string()
+            }
+            Self::InvalidConfig { error } => {
+                rust_i18n::t!("error.invalid_config", error = error).to_string()
+            }
+            Self::InvalidApiKey => rust_i18n::t!("error.invalid_api_key").to_string(),
             Self::IoError { path, error } => {
                 rust_i18n::t!("error.io_error", path = path, error = error).to_string()
             }

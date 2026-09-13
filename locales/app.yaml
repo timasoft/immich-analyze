@@ -310,3 +310,12 @@ error.did_you_mean:
 error.model_preflight_check_failed:
   en: "AI model preflight check failed: %{error}"
   ru: "Предварительная проверка ИИ модели не пройдена: %{error}"
+error.ai_host_connection_failed:
+  en: "Failed to connect to AI service host: %{error}"
+  ru: "Не удалось подключиться к ИИ сервису: %{error}"
+error.invalid_config:
+  en: "Invalid configuration: %{error}"
+  ru: "Некорректная конфигурация: %{error}"
+error.invalid_api_key:
+  en: "Invalid API key"
+  ru: "Некорректный ключ API"
