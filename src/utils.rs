@@ -1,11 +1,14 @@
 use crate::{
-    args::OverwritePolicy, data_access::DataAccess, database::ImageAnalysisResult,
+    args::{Interface, OverwritePolicy},
+    data_access::DataAccess,
+    database::ImageAnalysisResult,
     error::ImageAnalysisError,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use log::warn;
 use regex::Regex;
 use std::{borrow::Cow, error::Error, path::Path, str::FromStr as _, sync::OnceLock};
+use strsim::levenshtein;
 use tokio::io::AsyncReadExt as _;
 use uuid::Uuid;
 
@@ -278,4 +281,42 @@ pub fn format_error_chain(err: &dyn Error) -> String {
         source = inner.source();
     }
     msg
+}
+
+const MAX_SUGGESTION_DISTANCE: usize = 5;
+
+pub fn closest_name(name: &str, available: &[String]) -> Option<String> {
+    let mut closest: Option<(usize, &str)> = None;
+    for candidate in available {
+        let distance = levenshtein(name, candidate);
+        if distance <= MAX_SUGGESTION_DISTANCE
+            && closest.is_none_or(|(best_distance, _)| distance < best_distance)
+        {
+            closest = Some((distance, candidate));
+        }
+    }
+    closest.map(|(_, candidate)| candidate.to_owned())
+}
+
+/// Normalizes a model name to a canonical form for comparison.
+///
+/// Ollama treats a bare name (`name`) as an alias for `name:latest`, so bare names
+/// are canonicalized to the full `name:latest`.
+///
+/// Other interfaces are left as-is.
+fn normalize_model_name(interface: Interface, name: &str) -> Cow<'_, str> {
+    if !interface.ollama_tag_semantics() || name.contains(':') {
+        Cow::Borrowed(name)
+    } else {
+        Cow::Owned(format!("{name}:latest"))
+    }
+}
+
+/// Returns `true` if the configured model is served as one of the available models.
+/// Whether two names refer to the same model is decided by the interface's naming semantics.
+pub fn is_model_served(interface: Interface, model: &str, available: &[String]) -> bool {
+    let target = normalize_model_name(interface, model);
+    available
+        .iter()
+        .any(|served| normalize_model_name(interface, served) == target)
 }

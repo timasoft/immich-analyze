@@ -41,6 +41,14 @@ pub enum ImageAnalysisError {
     IoError { path: String, error: String },
     #[error("Asset not found: {asset_id}")]
     AssetNotFound { asset_id: Uuid },
+    #[error("No AI service hosts configured")]
+    NoHostsConfigured,
+    #[error("AI service {host} does not serve model '{model}'")]
+    ModelNotFound {
+        model: String,
+        host: String,
+        closest: Option<String>,
+    },
 }
 
 impl ImageAnalysisError {
@@ -113,6 +121,23 @@ impl ImageAnalysisError {
             Self::AssetNotFound { asset_id } => {
                 rust_i18n::t!("database.asset_not_in_table", asset_id = asset_id).to_string()
             }
+            Self::NoHostsConfigured => rust_i18n::t!("error.no_hosts_configured").to_string(),
+            Self::ModelNotFound {
+                model,
+                host,
+                closest,
+            } => {
+                let message =
+                    rust_i18n::t!("error.model_not_found", model = model, host = host).to_string();
+                if let Some(nearest) = closest {
+                    format!(
+                        "{message}\n{}",
+                        rust_i18n::t!("error.did_you_mean", model = nearest)
+                    )
+                } else {
+                    message
+                }
+            }
         }
     }
 
@@ -141,7 +166,9 @@ impl ImageAnalysisError {
             | Self::ProcessingError { .. }
             | Self::FileWriteTimeout { .. }
             | Self::IoError { .. }
-            | Self::AssetNotFound { .. } => false,
+            | Self::AssetNotFound { .. }
+            | Self::NoHostsConfigured
+            | Self::ModelNotFound { .. } => false,
         }
     }
 }

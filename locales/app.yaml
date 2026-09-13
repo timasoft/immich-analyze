@@ -215,6 +215,9 @@ database.connection_success:
 host_manager.host_marked_unavailable:
   en: " %{host} marked as temporarily unavailable"
   ru: " %{host} помечен как временно недоступный"
+host_manager.host_marked_permanently_unavailable:
+  en: " %{host} marked as permanently unavailable (model not found)"
+  ru: " %{host} помечен как постоянно недоступный (модель не найдена)"
 
 # Error messages
 error.empty_file:
@@ -283,6 +286,9 @@ error.query_failed_error:
 error.batch_mode_failed:
   en: " Batch mode failed: %{error}"
   ru: " Batch режим завершился с ошибкой: %{error}"
+error.no_hosts_configured:
+  en: " No AI service hosts are configured"
+  ru: " Не настроены ИИ сервисы (хосты)"
 warning.disable_ai_wrapper_missing_ai:
   en: " --disable-ai-wrapper with --overwrite-policy missing-ai will re-analyze every asset (no [AI] tag to detect)"
   ru: " --disable-ai-wrapper с --overwrite-policy missing-ai будет каждый раз переанализировать все ассеты (нет тега [AI] для обнаружения)"
@@ -295,3 +301,12 @@ error.io_error:
 error.ai_request_timeout:
   en: " AI service request timed out"
   ru: " Таймаут запроса к ИИ сервису"
+error.model_not_found:
+  en: "AI service %{host} does not serve model '%{model}'"
+  ru: "ИИ сервис %{host} не предоставляет модель '%{model}'"
+error.did_you_mean:
+  en: "Did you mean '%{model}'?"
+  ru: "Возможно, вы имели в виду '%{model}'?"
+error.model_preflight_check_failed:
+  en: "AI model preflight check failed: %{error}"
+  ru: "Предварительная проверка ИИ модели не пройдена: %{error}"

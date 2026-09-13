@@ -81,6 +81,9 @@ pub struct Args {
     /// API key for authentication (llama.cpp server)
     #[arg(long, env = "IMMICH_ANALYZE_API_KEY", hide_env_values = true)]
     pub api_key: Option<String>,
+    /// Disable the startup model existence check against the configured AI hosts
+    #[arg(long, default_value_t = false)]
+    pub no_preflight_model_check: bool,
     /// Maximum number of concurrent requests
     #[arg(long, default_value_t = 4)]
     pub max_concurrent: usize,
