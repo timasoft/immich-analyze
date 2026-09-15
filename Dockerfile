@@ -1,5 +1,5 @@
 # Stage 1: Build application
-FROM rust:1.91-alpine AS builder
+FROM rust:1.98-alpine AS builder
 
 RUN apk add --no-cache \
     ca-certificates \
