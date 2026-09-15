@@ -22,7 +22,7 @@ COPY locales/ ./locales/
 RUN cargo build --release --locked
 
 # Stage 2: Final runtime image
-FROM alpine:3.20
+FROM alpine:3.24
 
 RUN apk add --no-cache \
     ca-certificates \
