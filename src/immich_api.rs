@@ -1,9 +1,9 @@
-use crate::{error::ImageAnalysisError, utils::format_error_chain};
-use log::{info, warn};
-use reqwest::{
-    Client,
-    header::{HeaderMap, HeaderValue},
+use crate::{
+    error::ImageAnalysisError,
+    utils::{default_headers, format_error_chain},
 };
+use log::{info, warn};
+use reqwest::{Client, header::HeaderValue};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -155,7 +155,7 @@ impl ImmichApiProvider {
         let clients: Vec<Client> = api_keys
             .iter()
             .map(|api_key| {
-                let mut headers = HeaderMap::new();
+                let mut headers = default_headers();
                 let header_value = HeaderValue::from_str(api_key)
                     .map_err(|_| ImageAnalysisError::InvalidApiKey)?;
                 headers.insert("x-api-key", header_value);
