@@ -262,6 +262,7 @@ impl ImmichApiProvider {
 
     /// Fetches all assets from the Immich library.
     ///
+    /// Calls `POST /api/search/metadata` (requires `asset.read` permission).
     /// Fully paginates each API key separately (multi-user support).
     /// Tries all keys for each page request on failure.
     ///
@@ -273,6 +274,7 @@ impl ImmichApiProvider {
 
     /// Fetches assets created after a specific timestamp from the Immich library.
     ///
+    /// Calls `POST /api/search/metadata` (requires `asset.read` permission).
     /// Uses the `createdAfter` filter to retrieve only assets added to Immich
     /// after the specified date. This is useful for incremental polling in monitor mode.
     /// Fully paginates each API key separately (multi-user support).
@@ -298,6 +300,8 @@ impl ImmichApiProvider {
     }
 
     /// Shared paginated search across all clients.
+    ///
+    /// Calls `POST /api/search/metadata` (requires `asset.read` permission).
     async fn search_assets_paginated(
         &self,
         since: Option<String>,
@@ -388,7 +392,8 @@ impl ImmichApiProvider {
 
     /// Gets the filesystem path to the preview image for an asset.
     ///
-    /// For API mode, this downloads the preview to a temporary file and returns its path.
+    /// Calls `GET /api/assets/{id}/thumbnail?size=preview` (requires `asset.view` permission).
+    /// Downloads the preview to a temporary file and returns its path.
     /// The caller is responsible for cleaning up the temporary file after use.
     /// Tries all API keys until one succeeds.
     ///
@@ -461,6 +466,8 @@ impl ImmichApiProvider {
     }
 
     /// Updates the description for an asset.
+    ///
+    /// Calls `PUT /api/assets/{id}` (requires `asset.update` permission).
     /// Tries all API keys until one succeeds.
     ///
     /// # Arguments
@@ -523,6 +530,8 @@ impl ImmichApiProvider {
     }
 
     /// Checks if an asset already has a description via API.
+    ///
+    /// Calls `GET /api/assets/{id}` (requires `asset.read` permission).
     /// Tries all API keys until one succeeds.
     ///
     /// # Arguments
@@ -589,6 +598,8 @@ impl ImmichApiProvider {
     }
 
     /// Checks if an asset exists via API.
+    ///
+    /// Calls `GET /api/assets/{id}` (requires `asset.read` permission).
     /// Tries all API keys until one succeeds.
     ///
     /// # Arguments
@@ -631,6 +642,8 @@ impl ImmichApiProvider {
     }
 
     /// Gets full metadata for an asset including EXIF information.
+    ///
+    /// Calls `GET /api/assets/{id}` (requires `asset.read` permission).
     ///
     /// # Arguments
     /// * `asset_id` - UUID of the asset
