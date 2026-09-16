@@ -4,7 +4,7 @@ AI-powered image description generator for Immich photo management system
 
 ## Overview
 
-Immich Analyze automatically generates detailed descriptions for images in your Immich library using AI vision models via **Ollama** or **llama.cpp server**. This enhances search capabilities and organization by providing semantic understanding of image content.
+Immich Analyze automatically generates detailed descriptions for images in your Immich library using AI vision models via **Ollama**, **llama.cpp server**, or **OpenRouter**. This enhances search capabilities and organization by providing semantic understanding of image content.
 
 The application supports two data access modes:
 - **Database mode**: Direct PostgreSQL database access for reading/writing Immich metadata. Note: this mode is planned for removal in a future release (0.5.0 or 0.6.0) since the Immich team does not support direct database access, and schema changes may break compatibility without notice.
@@ -12,7 +12,7 @@ The application supports two data access modes:
 
 ## Features
 
-- AI-powered image analysis using Ollama or llama.cpp server with vision-capable models
+- AI-powered image analysis using Ollama, llama.cpp server, or OpenRouter with vision-capable models
 - Multiple operation modes: batch processing, folder monitoring, or combined mode
 - Multi-host support with automatic failover for AI service endpoints
 - **Dual data access modes**: Direct PostgreSQL database access OR Immich API integration (database mode is planned for removal in 0.5.0 or 0.6.0)
@@ -33,7 +33,8 @@ The application supports two data access modes:
   - Immich API endpoint with API key
 - AI service running a vision-capable model:
   - **Ollama** server (e.g., `qwen3-vl:4b-thinking-q4_K_M`), OR
-  - **llama.cpp server** with OpenAI-compatible API endpoint
+  - **llama.cpp server** with OpenAI-compatible API endpoint, OR
+  - **OpenRouter** cloud API (OpenAI-compatible endpoint)
 
 ## Installation
 
@@ -76,12 +77,15 @@ services:
       - .env
     environment:
       # AI service configuration
-      - IMMICH_ANALYZE_INTERFACE=ollama  # or "llamacpp"
+      - IMMICH_ANALYZE_INTERFACE=ollama  # or "llamacpp" or "openrouter"
       - IMMICH_ANALYZE_HOSTS=http://ollama:11434
       # For llama.cpp server with authentication:
       # - IMMICH_ANALYZE_INTERFACE=llamacpp
       # - IMMICH_ANALYZE_HOSTS=http://llamacpp-server:8080
       # - IMMICH_ANALYZE_API_KEY=your-api-key-here
+      # For OpenRouter (host defaults to https://openrouter.ai/api):
+      # - IMMICH_ANALYZE_INTERFACE=openrouter
+      # - IMMICH_ANALYZE_API_KEY=sk-or-xxx
       # Or use multiple hosts with automatic failover:
       # - IMMICH_ANALYZE_HOSTS=http://primary:11434,http://backup:11434
     depends_on:
@@ -103,10 +107,11 @@ networks:
   - API credentials (`IMMICH_API_URL`, `IMMICH_API_KEY`) for Immich API access
 - **Explicit mode override**: Set `IMMICH_ANALYZE_DATA_ACCESS_MODE` to `database` or `immich-api` to bypass auto-detection
 - **Volume mounts**: The `/data` volume mount is only required when using **database mode** (to access `upload/` and `thumbs/` directories). When using **API mode**, this volume can be omitted.
-- The `ollama` service is **optional** - you can remove it and use an external Ollama or llama.cpp server instead
-- Set `IMMICH_ANALYZE_INTERFACE` to `ollama` (default) or `llamacpp` depending on your backend
+- The `ollama` service is **optional** - you can remove it and use an external Ollama, llama.cpp server, or OpenRouter instead
+- Set `IMMICH_ANALYZE_INTERFACE` to `ollama` (default), `llamacpp`, or `openrouter` depending on your backend
 - If using external service, modify `IMMICH_ANALYZE_HOSTS` to point to your server(s)
 - For llama.cpp server, provide `IMMICH_ANALYZE_API_KEY` if authentication is enabled
+- For OpenRouter, provide `IMMICH_ANALYZE_API_KEY` (starts with `sk-or-`); the host defaults to `https://openrouter.ai/api`
 - After adding the Ollama service, you need to pull the model manually by executing:
   ```bash
   docker exec -it ollama ollama pull qwen3-vl:4b-thinking-q4_K_M
@@ -184,9 +189,9 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `IMMICH_ANALYZE_INTERFACE` | AI service interface type (`ollama` or `llamacpp`) | `ollama` |
-| `IMMICH_ANALYZE_HOSTS` | Comma-separated AI service host URLs | `http://localhost:11434` |
-| `IMMICH_ANALYZE_API_KEY` | API key for llama.cpp server authentication | *(none)* |
+| `IMMICH_ANALYZE_INTERFACE` | AI service interface type (`ollama`, `llamacpp`, or `openrouter`) | `ollama` |
+| `IMMICH_ANALYZE_HOSTS` | Comma-separated AI service host URLs | `http://localhost:11434` (`https://openrouter.ai/api` on `openrouter`) |
+| `IMMICH_ANALYZE_API_KEY` | API key for llama.cpp server or OpenRouter authentication | *(none)* |
 | `IMMICH_ANALYZE_MODEL_NAME` | Model name for image analysis | `qwen3-vl:4b-thinking-q4_K_M` |
 | `IMMICH_ANALYZE_PROMPT` | Prompt for generating image descriptions | *See below* |
 | `IMMICH_ANALYZE_ENRICH_PROMPT` | Enable prompt enrichment with asset metadata (API mode only) | `false` |
@@ -248,13 +253,13 @@ Options:
       --api-poll-interval <API_POLL_INTERVAL>
           API poll interval in seconds (for Immich API mode) [default: 10]
       --model-name <MODEL_NAME>
-          Ollama model name for image analysis [default: qwen3-vl:4b-thinking-q4_K_M]
+          Model name for image analysis [default: qwen3-vl:4b-thinking-q4_K_M]
       --interface <INTERFACE>
-          AI service interface type [default: ollama] [possible values: ollama, llamacpp]
+          AI service interface type [default: ollama] [possible values: ollama, llamacpp, openrouter]
       --hosts <HOSTS>
-          Host URLs (Ollama or llama.cpp server) [default: http://localhost:11434]
+          Host URLs (Ollama, llama.cpp server, or OpenRouter) [default: http://localhost:11434]
       --api-key <API_KEY>
-          API key for authentication (llama.cpp server) [env: IMMICH_ANALYZE_API_KEY]
+          API key for authentication (llama.cpp server or OpenRouter) [env: IMMICH_ANALYZE_API_KEY]
       --no-preflight-model-check
           Disable the startup model existence check against the configured AI hosts
       --max-concurrent <MAX_CONCURRENT>
@@ -319,6 +324,16 @@ immich-analyze \
   --postgres-url "host=localhost user=postgres dbname=immich password=password" \
   --interface llamacpp \
   --hosts "http://llamacpp-server:8080"
+```
+
+**Basic Batch Processing with OpenRouter** (does not require an explicit host)
+```bash
+immich-analyze \
+  --data-access-mode database \
+  --postgres-url "host=localhost user=postgres dbname=immich password=password" \
+  --interface openrouter \
+  --model-name "cool-model" \
+  --api-key "sk-or-..."
 ```
 
 **Batch Processing with Human Text Preservation (Overwrite All)**
@@ -469,6 +484,10 @@ RUST_LOG=debug immich-analyze --combined --data-access-mode database --postgres-
 ### For llama.cpp Server:
 - Any GGUF vision model served via llama.cpp's OpenAI-compatible API
 - Recommended: `qwen3-vl-4b-instruct-q4_k_m.gguf` or similar quantized variants
+
+### For OpenRouter:
+- Any vision-capable model available on OpenRouter
+- The host defaults to `https://openrouter.ai/api`; supply your API key via `IMMICH_ANALYZE_API_KEY` or `--api-key`
 
 Install Ollama models using:
 ```bash
