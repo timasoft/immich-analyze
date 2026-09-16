@@ -497,6 +497,19 @@ The application integrates with your Immich instance by analyzing preview images
 - Polls Immich API for new assets at configurable interval (`--api-poll-interval`)
 - Requires `IMMICH_API_URL` and `IMMICH_API_KEY` environment variables (supports multiple comma-separated keys)
 
+##### Required API Key Permissions
+
+The API key used must have the following permissions enabled in the Immich admin panel:
+
+| Endpoint                     | Method | Permission     | Purpose                                     |
+|------------------------------|--------|----------------|---------------------------------------------|
+| `/api/search/metadata`       | POST   | `asset.read`   | List/search assets for batch processing     |
+| `/api/assets/{id}/thumbnail` | GET    | `asset.view`   | Download preview images for AI analysis     |
+| `/api/assets/{id}`           | PUT    | `asset.update` | Write generated descriptions back to assets |
+| `/api/assets/{id}`           | GET    | `asset.read`   | Check asset existence and read metadata     |
+
+> **Note**: Ensure all three permissions (`asset.read`, `asset.view`, `asset.update`) are enabled.
+
 ### Core Features
 - Automatic retry logic with multiple AI service hosts and automatic failover
   - Configurable maximum retry attempts (`--max-retries`, 0 = infinite)
