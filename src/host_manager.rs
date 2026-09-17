@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use log::{debug, error, info, warn};
-use reqwest::Client;
+use reqwest::{Client, header::HeaderValue};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -169,6 +169,23 @@ impl Interface {
                 ],
                 "stream": false,
             }),
+        }
+    }
+
+    /// Returns interface-specific HTTP headers to attach to requests, if any.
+    pub fn additional_headers(self) -> Option<Vec<(&'static str, HeaderValue)>> {
+        match self {
+            Self::Ollama | Self::Llamacpp => None,
+            Self::OpenRouter => Some(vec![
+                (
+                    "HTTP-Referer",
+                    HeaderValue::from_static("https://github.com/timasoft/immich-analyze"),
+                ),
+                (
+                    "X-OpenRouter-Title",
+                    HeaderValue::from_static("immich-analyze"),
+                ),
+            ]),
         }
     }
 }
@@ -364,6 +381,13 @@ impl HostManager {
                         request = request.header("Authorization", format!("Bearer {api_key}"));
                     } else {
                         debug!("No API key provided for {:?} request", self.interface);
+                    }
+                }
+
+                if let Some(additional_headers) = self.interface.additional_headers() {
+                    for (header, value) in additional_headers {
+                        debug!("Adding custom header: {header}={value:?}");
+                        request = request.header(header, value);
                     }
                 }
 
