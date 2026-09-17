@@ -2,10 +2,12 @@ use crate::data_access::DataAccessMode;
 use clap::{Parser, ValueEnum};
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[value(rename_all = "lower")]
 pub enum Interface {
     #[default]
     Ollama,
     Llamacpp,
+    OpenRouter,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -69,16 +71,23 @@ pub struct Args {
     /// API poll interval in seconds (for Immich API mode)
     #[arg(long, default_value_t = 10)]
     pub api_poll_interval: u32,
-    /// Ollama model name for image analysis
+    /// Model name for image analysis
     #[arg(long, default_value = "qwen3-vl:4b-thinking-q4_K_M")]
     pub model_name: String,
     /// AI service interface type
     #[arg(long, value_enum, default_value = "ollama")]
     pub interface: Interface,
-    /// Host URLs (Ollama or llama.cpp server)
-    #[arg(long, default_value = "http://localhost:11434", value_delimiter = ',')]
+    #[expect(clippy::doc_markdown)]
+    /// Host URLs (Ollama, llama.cpp server, or OpenRouter)
+    #[arg(
+        long,
+        value_delimiter = ',',
+        default_value = "http://localhost:11434",
+        default_value_if("interface", "openrouter", "https://openrouter.ai/api")
+    )]
     pub hosts: Vec<String>,
-    /// API key for authentication (llama.cpp server)
+    #[expect(clippy::doc_markdown)]
+    /// API key for authentication (llama.cpp server or OpenRouter)
     #[arg(long, env = "IMMICH_ANALYZE_API_KEY", hide_env_values = true)]
     pub api_key: Option<String>,
     /// Disable the startup model existence check against the configured AI hosts

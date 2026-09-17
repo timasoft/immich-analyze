@@ -23,7 +23,7 @@ impl Interface {
     pub const fn endpoint(self) -> &'static str {
         match self {
             Self::Ollama => "/api/chat",
-            Self::Llamacpp => "/v1/chat/completions",
+            Self::Llamacpp | Self::OpenRouter => "/v1/chat/completions",
         }
     }
 
@@ -32,7 +32,7 @@ impl Interface {
     pub const fn models_list_endpoint(self) -> &'static str {
         match self {
             Self::Ollama => "/api/tags",
-            Self::Llamacpp => "/v1/models",
+            Self::Llamacpp | Self::OpenRouter => "/v1/models",
         }
     }
 
@@ -41,7 +41,7 @@ impl Interface {
     pub const fn supports_bearer_auth(self) -> bool {
         match self {
             Self::Ollama => false,
-            Self::Llamacpp => true,
+            Self::Llamacpp | Self::OpenRouter => true,
         }
     }
 
@@ -49,7 +49,7 @@ impl Interface {
     #[inline]
     pub const fn supports_completion_fallback(self) -> bool {
         match self {
-            Self::Ollama => false,
+            Self::Ollama | Self::OpenRouter => false,
             Self::Llamacpp => true,
         }
     }
@@ -60,7 +60,7 @@ impl Interface {
     pub const fn ollama_tag_semantics(self) -> bool {
         match self {
             Self::Ollama => true,
-            Self::Llamacpp => false,
+            Self::Llamacpp | Self::OpenRouter => false,
         }
     }
 
@@ -77,7 +77,7 @@ impl Interface {
                 ],
                 "stream": false,
             }),
-            Self::Llamacpp => serde_json::json!({
+            Self::Llamacpp | Self::OpenRouter => serde_json::json!({
                 "model": model_name,
                 "messages": [
                     {
@@ -104,7 +104,7 @@ impl Interface {
                         .map(str::to_owned)
                         .collect()
                 }),
-            Self::Llamacpp => json_value
+            Self::Llamacpp | Self::OpenRouter => json_value
                 .get("data")
                 .and_then(Value::as_array)
                 .map_or_else(Vec::new, |models| {
@@ -124,7 +124,7 @@ impl Interface {
                 .get("message")
                 .and_then(|msg| msg.get("content"))
                 .and_then(|content| content.as_str()),
-            Self::Llamacpp => json_value
+            Self::Llamacpp | Self::OpenRouter => json_value
                 .get("choices")
                 .and_then(|choices| choices.as_array())
                 .and_then(|choices| choices.first())
@@ -148,7 +148,7 @@ impl Interface {
                 ],
                 "stream": false,
             }),
-            Self::Llamacpp => serde_json::json!({
+            Self::Llamacpp | Self::OpenRouter => serde_json::json!({
                 "model": model_name,
                 "messages": [
                     {
