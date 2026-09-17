@@ -7,6 +7,7 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use log::warn;
 use regex::Regex;
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use std::{borrow::Cow, error::Error, path::Path, str::FromStr as _, sync::OnceLock};
 use strsim::levenshtein;
 use tokio::io::AsyncReadExt as _;
@@ -17,6 +18,17 @@ pub enum OverwriteDecision {
     Skip,
     AnalyzeFresh,
     PreserveExisting(String),
+}
+
+/// Build the default HTTP header(s) for outgoing API requests.
+#[must_use]
+pub fn default_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static(concat!("immich-analyze/", env!("CARGO_PKG_VERSION"))),
+    );
+    headers
 }
 
 /// Get system locale from environment variables

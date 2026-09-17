@@ -26,7 +26,7 @@ use host_manager::HostManager;
 use monitor::monitor_folder;
 use progress::SimpleProgress;
 use utils::{
-    determine_locale, format_error_chain, get_system_locale, validate_args,
+    default_headers, determine_locale, format_error_chain, get_system_locale, validate_args,
     validate_immich_directory,
 };
 
@@ -128,6 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(args.timeout))
+        .default_headers(default_headers())
         .build()?;
     let host_manager = Arc::new(HostManager::new(
         args.hosts.clone(),
