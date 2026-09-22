@@ -16,8 +16,40 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OverwriteDecision {
     Skip,
+    SkipBlocked { reason: String },
     AnalyzeFresh,
     PreserveExisting(String),
+}
+
+/// Distinctive marker embedded in a stored description for assets the AI provider
+/// permanently rejected.
+pub const BLOCKED_MARKER_PREFIX: &str = "IMMICH-ANALYZE:BLOCKED";
+
+/// Builds the marker text persisted for a permanently rejected asset.
+#[must_use]
+pub fn blocked_marker_text(status: u16, message: &str) -> String {
+    if status == 200 {
+        format!("{BLOCKED_MARKER_PREFIX}: {message}")
+    } else {
+        format!("{BLOCKED_MARKER_PREFIX}: {message} (HTTP {status})")
+    }
+}
+
+/// Extracts the reason recorded in a permanent-rejection marker, if the given
+/// description is one. Returns `None` for any other description.
+#[must_use]
+pub fn extract_blocked_reason(description: &str) -> Option<String> {
+    let (_, after) = description.split_once(BLOCKED_MARKER_PREFIX)?;
+    let unwrapped = match after.split_once("[/AI]") {
+        Some((before, _)) => before,
+        None => after,
+    };
+    let reason = unwrapped.strip_prefix(": ").unwrap_or(unwrapped).trim();
+    if reason.is_empty() {
+        None
+    } else {
+        Some(reason.to_owned())
+    }
 }
 
 /// Build the default HTTP header(s) for outgoing API requests.
@@ -150,12 +182,20 @@ pub async fn check_overwrite_policy(
         OverwritePolicy::All => Ok(OverwriteDecision::AnalyzeFresh),
         OverwritePolicy::None => {
             if data_access.has_description(asset_id).await? {
+                if let Some(desc) = data_access.get_description(asset_id).await?
+                    && let Some(reason) = extract_blocked_reason(&desc)
+                {
+                    return Ok(OverwriteDecision::SkipBlocked { reason });
+                }
                 return Ok(OverwriteDecision::Skip);
             }
             Ok(OverwriteDecision::AnalyzeFresh)
         }
         OverwritePolicy::MissingAi => match data_access.get_description(asset_id).await {
             Ok(Some(desc)) => {
+                if let Some(reason) = extract_blocked_reason(&desc) {
+                    return Ok(OverwriteDecision::SkipBlocked { reason });
+                }
                 if get_ai_block_pattern().is_match(&desc) {
                     return Ok(OverwriteDecision::Skip);
                 }
@@ -331,4 +371,57 @@ pub fn is_model_served(interface: Interface, model: &str, available: &[String]) 
     available
         .iter()
         .any(|served| normalize_model_name(interface, served) == target)
+}
+
+/// How a provider-reported error message should be classified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderMessageClass {
+    ContentPolicyBlock,
+    Transient,
+    Unknown,
+}
+
+/// Classifies a provider error message. A message is only treated as a permanent
+/// content-policy block when it positively matches known content-policy indicators;
+/// anything else is either transient or unknown.
+pub fn classify_provider_message(message: &str) -> ProviderMessageClass {
+    const CONTENT_POLICY_INDICATORS: &[&str] = &[
+        "prohibited",
+        "content filter",
+        "content policy",
+        "policy violation",
+        "blocked content",
+        "disallowed",
+    ];
+    const TRANSIENT_INDICATORS: &[&str] = &[
+        "rate limit",
+        "too many requests",
+        "temporarily",
+        "unavailable",
+        "not loaded",
+        "not available",
+        "capacity",
+        "overloaded",
+        "overload",
+        "busy",
+        "retry",
+        "try again",
+        "maintenance",
+        "high demand",
+        "exhausted",
+    ];
+    let lower = message.to_lowercase();
+    if CONTENT_POLICY_INDICATORS
+        .iter()
+        .any(|indicator| lower.contains(indicator))
+    {
+        ProviderMessageClass::ContentPolicyBlock
+    } else if TRANSIENT_INDICATORS
+        .iter()
+        .any(|indicator| lower.contains(indicator))
+    {
+        ProviderMessageClass::Transient
+    } else {
+        ProviderMessageClass::Unknown
+    }
 }

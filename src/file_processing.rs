@@ -9,7 +9,7 @@ use crate::{
     progress::SimpleProgress,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
-        OverwriteDecision, build_final_description, check_overwrite_policy,
+        OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
         extract_uuid_from_preview_filename, filename_from_path, is_preview_filename,
     },
 };
@@ -80,6 +80,9 @@ async fn process_file_with_existing_check(
 
     match check_overwrite_policy(ctx.data_access, &asset_id, ctx.overwrite_policy).await? {
         OverwriteDecision::Skip => Err(ImageAnalysisError::AlreadyProcessed { filename }),
+        OverwriteDecision::SkipBlocked { reason } => {
+            Err(ImageAnalysisError::PermanentlyRejected { filename, reason })
+        }
         OverwriteDecision::AnalyzeFresh => process_file(ctx, path, None).await,
         OverwriteDecision::PreserveExisting(desc) => process_file(ctx, path, Some(desc)).await,
     }
@@ -101,10 +104,23 @@ async fn process_file(
         .await
         .unwrap_or_else(|| ctx.prompt.to_owned());
 
-    let analysis = ctx
+    let (analysis, rejected) = match ctx
         .host_manager
         .analyze_image(&preview_path, &final_prompt)
-        .await?;
+        .await
+    {
+        Ok(analysis) => (analysis, false),
+        Err(ImageAnalysisError::ProviderRejected {
+            status, message, ..
+        }) => (
+            ImageAnalysisResult {
+                asset_id,
+                description: blocked_marker_text(status, &message),
+            },
+            true,
+        ),
+        Err(err) => return Err(err),
+    };
 
     if let Err(err) = data_access.cleanup_preview(&preview_path).await {
         warn!("Failed to cleanup preview: {err}");
@@ -122,6 +138,13 @@ async fn process_file(
     data_access
         .update_description(&analysis.asset_id, &final_description)
         .await?;
+
+    if rejected {
+        return Err(ImageAnalysisError::PermanentlyRejected {
+            filename,
+            reason: analysis.description,
+        });
+    }
 
     Ok(analysis)
 }
@@ -183,7 +206,8 @@ pub async fn process_files_concurrently(
                 Err(
                     ImageAnalysisError::AlreadyProcessed { .. }
                     | ImageAnalysisError::InvalidUuid { .. }
-                    | ImageAnalysisError::AssetNotFound { .. },
+                    | ImageAnalysisError::AssetNotFound { .. }
+                    | ImageAnalysisError::PermanentlyRejected { .. },
                 ) => {
                     progress_clone
                         .lock()
@@ -220,6 +244,7 @@ pub fn display_results(
     let mut successful = 0_u32;
     let mut failed = 0_u32;
     let mut skipped = 0_u32;
+    let mut blocked = 0_u32;
     let mut output_lines = Vec::new();
     for (filename, result) in results {
         match result {
@@ -239,6 +264,7 @@ pub fn display_results(
                     "success" => successful = successful.saturating_add(1),
                     "failed" => failed = failed.saturating_add(1),
                     "skipped" => skipped = skipped.saturating_add(1),
+                    "blocked" => blocked = blocked.saturating_add(1),
                     _ => {}
                 }
                 output_lines.push(line);
@@ -251,7 +277,7 @@ pub fn display_results(
     for line in output_lines {
         println!("{line}");
     }
-    print_statistics(successful, failed, skipped);
+    print_statistics(successful, failed, skipped, blocked);
 }
 
 fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static str, String) {
@@ -263,6 +289,20 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
                 rust_i18n::t!("status.skipped"),
                 filename,
                 rust_i18n::t!("main.file_already_in_database", filename = filename),
+                "-".repeat(80)
+            ),
+        ),
+        ImageAnalysisError::PermanentlyRejected { filename, reason } => (
+            "blocked",
+            format!(
+                "{} [{}] {}\n{}",
+                rust_i18n::t!("status.blocked"),
+                filename,
+                rust_i18n::t!(
+                    "error.permanently_rejected",
+                    filename = filename,
+                    reason = reason
+                ),
                 "-".repeat(80)
             ),
         ),
@@ -309,9 +349,9 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
     }
 }
 
-fn print_statistics(successful: u32, failed: u32, skipped: u32) {
+fn print_statistics(successful: u32, failed: u32, skipped: u32, blocked: u32) {
     #[expect(clippy::arithmetic_side_effects)]
-    let total = u64::from(successful) + u64::from(failed) + u64::from(skipped);
+    let total = u64::from(successful) + u64::from(failed) + u64::from(skipped) + u64::from(blocked);
     println!("{}", rust_i18n::t!("main.statistics"));
     println!(
         "{}",
@@ -326,6 +366,13 @@ fn print_statistics(successful: u32, failed: u32, skipped: u32) {
             "{}",
             rust_i18n::t!("main.skipped", count = skipped.to_string())
         );
+    }
+    if blocked > 0 {
+        println!(
+            "{}",
+            rust_i18n::t!("main.blocked", count = blocked.to_string())
+        );
+        println!("{}", rust_i18n::t!("main.blocked_hint"));
     }
     println!(
         "{}",

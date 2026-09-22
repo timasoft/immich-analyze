@@ -49,6 +49,14 @@ pub enum ImageAnalysisError {
         host: String,
         closest: Option<String>,
     },
+    #[error("AI service rejected the request (HTTP {status}) for {filename}: {message}")]
+    ProviderRejected {
+        status: u16,
+        filename: String,
+        message: String,
+    },
+    #[error("Permanently rejected for {filename}: {reason}")]
+    PermanentlyRejected { filename: String, reason: String },
 }
 
 impl ImageAnalysisError {
@@ -136,6 +144,23 @@ impl ImageAnalysisError {
                     message
                 }
             }
+            Self::ProviderRejected {
+                status,
+                filename,
+                message,
+            } => rust_i18n::t!(
+                "error.provider_rejected",
+                filename = filename,
+                status = status.to_string(),
+                message = message
+            )
+            .to_string(),
+            Self::PermanentlyRejected { filename, reason } => rust_i18n::t!(
+                "error.permanently_rejected",
+                filename = filename,
+                reason = reason
+            )
+            .to_string(),
         }
     }
 
@@ -166,7 +191,41 @@ impl ImageAnalysisError {
             | Self::IoError { .. }
             | Self::AssetNotFound { .. }
             | Self::NoHostsConfigured
-            | Self::ModelNotFound { .. } => false,
+            | Self::ModelNotFound { .. }
+            | Self::ProviderRejected { .. }
+            | Self::PermanentlyRejected { .. } => false,
+        }
+    }
+
+    /// Returns `true` for errors that are expected outcomes of background polling and
+    /// should be silenced rather than logged as failures in the monitor loop.
+    #[must_use]
+    pub const fn is_silent_background_error(&self) -> bool {
+        match self {
+            // Silenced errors
+            Self::AlreadyProcessed { .. }
+            | Self::AssetNotFound { .. }
+            | Self::PermanentlyRejected { .. } => true,
+
+            // Errors that are logged as background failures
+            Self::EmptyFile { .. }
+            | Self::InvalidUuid { .. }
+            | Self::InvalidImmichStructure { .. }
+            | Self::InvalidApiKey
+            | Self::InvalidConfig { .. }
+            | Self::HttpError { .. }
+            | Self::EmptyResponse { .. }
+            | Self::JsonParsing { .. }
+            | Self::DatabaseError { .. }
+            | Self::ProcessingError { .. }
+            | Self::FileWriteTimeout { .. }
+            | Self::IoError { .. }
+            | Self::AllHostsUnavailable
+            | Self::AiRequestTimeout
+            | Self::HttpClientError { .. }
+            | Self::NoHostsConfigured
+            | Self::ModelNotFound { .. }
+            | Self::ProviderRejected { .. } => false,
         }
     }
 }

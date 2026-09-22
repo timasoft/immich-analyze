@@ -1,13 +1,14 @@
 use crate::{
     config::{MonitorConfig, ProcessingContext},
     data_access::DataAccess,
+    database::ImageAnalysisResult,
     error::ImageAnalysisError,
     health::mark_activity,
     host_manager::HostManager,
     immich_api::ImmichApiProvider,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
-        OverwriteDecision, build_final_description, check_overwrite_policy,
+        OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
         extract_uuid_from_preview_filename, filename_from_path, is_preview_filename,
     },
 };
@@ -88,6 +89,17 @@ pub async fn process_new_file(
                 );
                 return Ok(());
             }
+            Ok(OverwriteDecision::SkipBlocked { reason }) => {
+                println!(
+                    "{}",
+                    rust_i18n::t!(
+                        "error.permanently_rejected",
+                        filename = filename,
+                        reason = reason
+                    )
+                );
+                return Ok(());
+            }
             Ok(OverwriteDecision::AnalyzeFresh) => None,
             Ok(OverwriteDecision::PreserveExisting(desc)) => Some(desc),
             Err(err) => return Err(err),
@@ -97,40 +109,70 @@ pub async fn process_new_file(
         .await
         .unwrap_or_else(|| ctx.prompt.to_owned());
 
-    let result = ctx
+    let (analysis, rejected) = match ctx
         .host_manager
         .analyze_image(preview_path, &final_prompt)
-        .await;
-
-    match result {
-        Ok(analysis) => {
-            println!(
-                "{}",
-                rust_i18n::t!("monitor.processing_success", filename = filename)
-            );
-
-            let final_description = build_final_description(
-                &analysis,
-                data_access,
-                ctx.preserve_human,
-                existing_description,
-                ctx.disable_ai_wrapper,
-            )
-            .await?;
-
-            data_access
-                .update_description(&analysis.asset_id, &final_description)
-                .await?;
-            println!(
-                "{}",
-                rust_i18n::t!("monitor.database_updated", filename = filename)
-            );
-            Ok(())
-        }
+        .await
+    {
+        Ok(analysis) => (analysis, false),
+        Err(ImageAnalysisError::ProviderRejected {
+            status, message, ..
+        }) => (
+            ImageAnalysisResult {
+                asset_id,
+                description: blocked_marker_text(status, &message),
+            },
+            true,
+        ),
         Err(err) => {
             eprintln!("{}", err.user_message());
-            Err(err)
+            return Err(err);
         }
+    };
+
+    if !rejected {
+        println!(
+            "{}",
+            rust_i18n::t!("monitor.processing_success", filename = filename)
+        );
+    }
+
+    let final_description = build_final_description(
+        &analysis,
+        data_access,
+        ctx.preserve_human,
+        existing_description,
+        ctx.disable_ai_wrapper,
+    )
+    .await?;
+
+    data_access
+        .update_description(&analysis.asset_id, &final_description)
+        .await?;
+
+    if rejected {
+        println!(
+            "{}",
+            rust_i18n::t!(
+                "error.permanently_rejected",
+                filename = filename,
+                reason = analysis.description
+            )
+        );
+    } else {
+        println!(
+            "{}",
+            rust_i18n::t!("monitor.database_updated", filename = filename)
+        );
+    }
+
+    if rejected {
+        Err(ImageAnalysisError::PermanentlyRejected {
+            filename,
+            reason: analysis.description,
+        })
+    } else {
+        Ok(())
     }
 }
 
@@ -377,15 +419,13 @@ fn handle_fs_events(
                                     .expect("Failed to lock processing files");
                                 files.remove(&filename_clone);
                             }
-                            if let Err(err) = result {
-                                match err {
-                                    ImageAnalysisError::AlreadyProcessed { .. }
-                                    | ImageAnalysisError::AssetNotFound { .. } => {}
-                                    err => error!(
-                                        "Background processing error for: {filename_clone}: {}",
-                                        err.user_message()
-                                    ),
-                                }
+                            if let Err(err) = result
+                                && !err.is_silent_background_error()
+                            {
+                                error!(
+                                    "Background processing error for: {filename_clone}: {}",
+                                    err.user_message()
+                                );
                             }
                         });
                     }
@@ -513,15 +553,13 @@ async fn handle_api_poll(
                             processing.remove(&asset_id);
                         }
 
-                        if let Err(err) = result {
-                            match err {
-                                ImageAnalysisError::AlreadyProcessed { .. }
-                                | ImageAnalysisError::AssetNotFound { .. } => {}
-                                err => error!(
-                                    "Background processing error for: {asset_id}: {}",
-                                    err.user_message()
-                                ),
-                            }
+                        if let Err(err) = result
+                            && !err.is_silent_background_error()
+                        {
+                            error!(
+                                "Background processing error for: {asset_id}: {}",
+                                err.user_message()
+                            );
                         }
                     });
                 }

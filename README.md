@@ -535,6 +535,7 @@ The API key used must have the following permissions enabled in the Immich admin
   - Configurable delay between retry cycles (`--retry-delay-seconds`)
   - Smart error classification: only retryable errors (5xx HTTP, timeouts, host unavailable) trigger retries
   - Non-retryable errors (invalid UUID, empty response, JSON parsing) fail immediately
+  - Permanent provider rejections (e.g. a content-policy block returning `{"error":{"code":400,"message":"...PROHIBITED_CONTENT..."}}`) fail immediately, surface the provider's actual reason in the log, and are recorded as an `[AI] IMMICH-ANALYZE:BLOCKED: <reason> [/AI]` marker description so they are not re-attempted on subsequent runs
 - Host unavailability tracking with configurable recovery duration
 - File stability checks (database mode) to ensure images are fully written before processing
 - Event cooldown (database mode) to prevent duplicate processing of rapid filesystem events
@@ -559,6 +560,12 @@ RUST_LOG=debug immich-analyze --combined ...
 - Verify `IMMICH_API_URL` is reachable: `curl $IMMICH_API_URL/api/server/ping`
 - Verify API key has sufficient permissions in Immich admin panel
 - Check Immich server logs for authentication errors
+
+### Permanent provider rejections (content-policy / blocked content)
+
+Remote providers sometimes permanently reject an image — for example returning `{"error":{"code":400,"message":"...PROHIBITED_CONTENT..."}}`. `immich-analyze` treats these as **non-retryable**: the request is not retried, and the asset is recorded as permanently blocked so later batch/monitor runs skip it instead of repeatedly paying for the same rejected request.
+
+To re-attempt blocked assets, run with `--overwrite-policy all` (not recommended because it will reanalyze ALL photos and overwrite their descriptions), or clear the marker descriptions in Immich.
 
 ## TODO:
 - [x] Add llama.cpp support
