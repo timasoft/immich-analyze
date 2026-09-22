@@ -7,7 +7,10 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use log::warn;
 use regex::Regex;
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use reqwest::{
+    StatusCode,
+    header::{HeaderMap, HeaderValue, USER_AGENT},
+};
 use std::{borrow::Cow, error::Error, path::Path, str::FromStr as _, sync::OnceLock};
 use strsim::levenshtein;
 use tokio::io::AsyncReadExt as _;
@@ -27,8 +30,8 @@ pub const BLOCKED_MARKER_PREFIX: &str = "IMMICH-ANALYZE:BLOCKED";
 
 /// Builds the marker text persisted for a permanently rejected asset.
 #[must_use]
-pub fn blocked_marker_text(status: u16, message: &str) -> String {
-    if status == 200 {
+pub fn blocked_marker_text(status: StatusCode, message: &str) -> String {
+    if status.is_success() {
         format!("{BLOCKED_MARKER_PREFIX}: {message}")
     } else {
         format!("{BLOCKED_MARKER_PREFIX}: {message} (HTTP {status})")

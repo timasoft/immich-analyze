@@ -322,6 +322,9 @@ error.model_preflight_check_failed:
 error.ai_host_connection_failed:
   en: "Failed to connect to AI service host: %{error}"
   ru: "Не удалось подключиться к ИИ сервису: %{error}"
+error.ai_host_connection_failed_for_file:
+  en: "Failed to connect to AI service host for file %{filename}: %{error}"
+  ru: "Не удалось подключиться к ИИ сервису для файла %{filename}: %{error}"
 error.invalid_config:
   en: "Invalid configuration: %{error}"
   ru: "Некорректная конфигурация: %{error}"

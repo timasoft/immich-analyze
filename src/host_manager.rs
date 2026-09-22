@@ -426,7 +426,7 @@ impl HostManager {
                         debug!(
                             "Received {:?} response: {} {}",
                             self.interface,
-                            status.as_u16(),
+                            status,
                             status.canonical_reason().unwrap_or("")
                         );
 
@@ -451,7 +451,7 @@ impl HostManager {
                                             self.interface, filename, provider_message
                                         );
                                         return Err(ImageAnalysisError::ProviderRejected {
-                                            status: status.as_u16(),
+                                            status,
                                             filename: filename.clone(),
                                             message: provider_message,
                                         });
@@ -518,13 +518,13 @@ impl HostManager {
                                     self.interface.permanent_rejection_message(&json_value)
                             {
                                 ImageAnalysisError::ProviderRejected {
-                                    status: status.as_u16(),
+                                    status,
                                     filename: filename.clone(),
                                     message: provider_message,
                                 }
                             } else {
                                 ImageAnalysisError::HttpError {
-                                    status: status.as_u16(),
+                                    status,
                                     filename: filename.clone(),
                                     response: response_text,
                                 }
@@ -540,10 +540,9 @@ impl HostManager {
                             "{:?} request failed for {}: {}",
                             self.interface, filename, err
                         );
-                        last_error = Some(ImageAnalysisError::HttpError {
-                            status: 0,
-                            filename: filename.clone(),
-                            response: format_error_chain(&err),
+                        last_error = Some(ImageAnalysisError::HttpClientError {
+                            filename: Some(filename.clone()),
+                            error: format_error_chain(&err),
                         });
                     }
                     Err(_) => {
@@ -651,7 +650,7 @@ impl HostManager {
                 return self.test_completion(host).await;
             }
             Ok(response) => {
-                let status = response.status().as_u16();
+                let status = response.status();
                 return HostCheck::Failed(ImageAnalysisError::HttpError {
                     status,
                     filename: "models_list".to_owned(),
@@ -660,6 +659,7 @@ impl HostManager {
             }
             Err(err) => {
                 return HostCheck::Failed(ImageAnalysisError::HttpClientError {
+                    filename: None,
                     error: format_error_chain(&err),
                 });
             }
@@ -701,11 +701,12 @@ impl HostManager {
                 HostCheck::Missing { closest: None }
             }
             Ok(response) => HostCheck::Failed(ImageAnalysisError::HttpError {
-                status: response.status().as_u16(),
+                status: response.status(),
                 filename: "test completion".to_owned(),
                 response: response.text().await.unwrap_or_default(),
             }),
             Err(err) => HostCheck::Failed(ImageAnalysisError::HttpClientError {
+                filename: None,
                 error: format_error_chain(&err),
             }),
         }
