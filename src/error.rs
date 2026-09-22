@@ -1,3 +1,4 @@
+use reqwest::StatusCode;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -7,7 +8,7 @@ pub enum ImageAnalysisError {
     EmptyFile { filename: String },
     #[error("HTTP error {status} for {filename}: {response}")]
     HttpError {
-        status: u16,
+        status: StatusCode,
         filename: String,
         response: String,
     },
@@ -36,7 +37,10 @@ pub enum ImageAnalysisError {
     #[error("Invalid configuration: {error}")]
     InvalidConfig { error: String },
     #[error("HTTP client error: {error}")]
-    HttpClientError { error: String },
+    HttpClientError {
+        filename: Option<String>,
+        error: String,
+    },
     #[error("IO error for {path}: {error}")]
     IoError { path: String, error: String },
     #[error("Asset not found: {asset_id}")]
@@ -51,7 +55,7 @@ pub enum ImageAnalysisError {
     },
     #[error("AI service rejected the request (HTTP {status}) for {filename}: {message}")]
     ProviderRejected {
-        status: u16,
+        status: StatusCode,
         filename: String,
         message: String,
     },
@@ -111,9 +115,17 @@ impl ImageAnalysisError {
                 rust_i18n::t!("error.critical_processing_error", filename = filename),
                 self
             ),
-            Self::HttpClientError { error } => {
-                rust_i18n::t!("error.ai_host_connection_failed", error = error).to_string()
-            }
+            Self::HttpClientError { filename, error } => filename.as_ref().map_or_else(
+                || rust_i18n::t!("error.ai_host_connection_failed", error = error).to_string(),
+                |filename_str| {
+                    rust_i18n::t!(
+                        "error.ai_host_connection_failed_for_file",
+                        filename = filename_str,
+                        error = error
+                    )
+                    .to_string()
+                },
+            ),
             Self::InvalidImmichStructure { error } => {
                 rust_i18n::t!("error.invalid_immich_structure", error = error).to_string()
             }
@@ -166,11 +178,11 @@ impl ImageAnalysisError {
 
     /// Check if this error is retryable (transient)
     #[must_use]
-    pub const fn is_retryable(&self) -> bool {
+    pub fn is_retryable(&self) -> bool {
         match self {
             // Retryable errors
             Self::HttpError { status, .. } => {
-                *status == 0 || (*status >= 500 && *status <= 599) || *status == 429
+                status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS
             }
             Self::AllHostsUnavailable | Self::AiRequestTimeout | Self::HttpClientError { .. } => {
                 true
