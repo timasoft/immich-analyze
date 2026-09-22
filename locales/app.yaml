@@ -36,6 +36,12 @@ main.failed:
 main.skipped:
   en: " Skipped: %{count}"
   ru: " Пропущено: %{count}"
+main.blocked:
+  en: "󰂭 Permanently blocked: %{count}"
+  ru: "󰂭 Навсегда заблокировано: %{count}"
+main.blocked_hint:
+  en: " Run with --overwrite-policy all to re-attempt blocked assets"
+  ru: " Запустите с --overwrite-policy all, чтобы повторить попытку для заблокированных ассетов"
 main.total_processed:
   en: " Total processed: %{count}"
   ru: " Всего обработано: %{count}"
@@ -106,6 +112,9 @@ status.error:
 status.skipped:
   en: ""
   ru: ""
+status.blocked:
+  en: "󰂭"
+  ru: "󰂭"
 
 # Recommendations
 recommendation.check_service_status:
@@ -319,3 +328,9 @@ error.invalid_config:
 error.invalid_api_key:
   en: "Invalid API key"
   ru: "Некорректный ключ API"
+error.provider_rejected:
+  en: "󰂭 AI provider rejected the request (HTTP %{status}) for file %{filename}: %{message}"
+  ru: "󰂭 ИИ-провайдер отклонил запрос (HTTP %{status}) для файла %{filename}: %{message}"
+error.permanently_rejected:
+  en: "󰂭 File %{filename} was permanently rejected by the AI provider: %{reason}"
+  ru: "󰂭 Файл %{filename} был навсегда отклонен ИИ-провайдером: %{reason}"

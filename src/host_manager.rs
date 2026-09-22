@@ -2,12 +2,13 @@ use crate::{
     args::Interface,
     error::ImageAnalysisError,
     utils::{
-        closest_name, extract_uuid_from_preview_filename, filename_from_path, format_error_chain,
+        ProviderMessageClass, classify_provider_message, closest_name,
+        extract_uuid_from_preview_filename, filename_from_path, format_error_chain,
         is_model_served, read_image_as_base64,
     },
 };
 use log::{debug, error, info, warn};
-use reqwest::{Client, header::HeaderValue};
+use reqwest::{Client, StatusCode, header::HeaderValue};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -61,6 +62,26 @@ impl Interface {
         match self {
             Self::Ollama => true,
             Self::Llamacpp | Self::OpenRouter => false,
+        }
+    }
+
+    /// Returns the provider-reported message when this response body is a permanent
+    /// content-policy rejection for this interface. Only messages that positively signal
+    /// a content-policy block qualify; transient and unknown messages do not.
+    pub fn permanent_rejection_message(self, json_value: &Value) -> Option<String> {
+        match self {
+            Self::Ollama | Self::Llamacpp => None,
+            Self::OpenRouter => {
+                let error = json_value.get("error")?;
+                let message = match error {
+                    Value::String(msg) => Some(msg.as_str()),
+                    Value::Object(_) => error.get("message").and_then(Value::as_str),
+                    _ => None,
+                }?;
+                let trimmed = message.trim();
+                (classify_provider_message(trimmed) == ProviderMessageClass::ContentPolicyBlock)
+                    .then(|| trimmed.to_owned())
+            }
         }
     }
 
@@ -422,6 +443,19 @@ impl HostManager {
 
                             match serde_json::from_str::<Value>(&response_text) {
                                 Ok(json_value) => {
+                                    if let Some(provider_message) =
+                                        self.interface.permanent_rejection_message(&json_value)
+                                    {
+                                        error!(
+                                            "{:?} provider rejected request for {}: {}",
+                                            self.interface, filename, provider_message
+                                        );
+                                        return Err(ImageAnalysisError::ProviderRejected {
+                                            status: status.as_u16(),
+                                            filename: filename.clone(),
+                                            message: provider_message,
+                                        });
+                                    }
                                     let content = self.interface.parse_response(&json_value);
 
                                     if let Some(raw_description) = content {
@@ -468,16 +502,32 @@ impl HostManager {
                                 }
                             }
                         } else {
-                            let status = response.status().as_u16();
                             let response_text = response.text().await.unwrap_or_default();
                             error!(
                                 "{:?} HTTP error {} for {}: {}",
                                 self.interface, status, filename, response_text
                             );
-                            let error = ImageAnalysisError::HttpError {
+                            let error = if matches!(
                                 status,
-                                filename: filename.clone(),
-                                response: response_text,
+                                StatusCode::BAD_REQUEST
+                                    | StatusCode::FORBIDDEN
+                                    | StatusCode::UNPROCESSABLE_ENTITY
+                            ) && let Ok(json_value) =
+                                serde_json::from_str::<Value>(&response_text)
+                                && let Some(provider_message) =
+                                    self.interface.permanent_rejection_message(&json_value)
+                            {
+                                ImageAnalysisError::ProviderRejected {
+                                    status: status.as_u16(),
+                                    filename: filename.clone(),
+                                    message: provider_message,
+                                }
+                            } else {
+                                ImageAnalysisError::HttpError {
+                                    status: status.as_u16(),
+                                    filename: filename.clone(),
+                                    response: response_text,
+                                }
                             };
                             if !error.is_retryable() {
                                 return Err(error);
