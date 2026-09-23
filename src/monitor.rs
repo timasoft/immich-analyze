@@ -9,7 +9,7 @@ use crate::{
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
         OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
-        extract_uuid_from_preview_filename, filename_from_path, is_preview_filename,
+        extract_uuid_from_thumbnail_filename, filename_from_path, is_thumbnail_filename,
     },
 };
 use log::{error, warn};
@@ -36,13 +36,13 @@ use uuid::Uuid;
 /// Process new file with stability checking using `data_access` abstraction.
 pub async fn process_new_file(
     ctx: &ProcessingContext<'_>,
-    preview_path: &Path,
+    thumbnail_path: &Path,
     file_write_timeout: u64,
     file_check_interval: u64,
 ) -> Result<(), ImageAnalysisError> {
     let data_access = ctx.data_access;
 
-    let filename = filename_from_path(preview_path);
+    let filename = filename_from_path(thumbnail_path);
     println!(
         "{}",
         rust_i18n::t!("monitor.file_detected", filename = filename)
@@ -54,7 +54,7 @@ pub async fn process_new_file(
     let check_interval = Duration::from_millis(file_check_interval);
     // Wait for file to be stable
     while start_time.elapsed() < timeout_duration {
-        if let Ok(metadata) = tokio::fs::metadata(preview_path).await {
+        if let Ok(metadata) = tokio::fs::metadata(thumbnail_path).await {
             let current_size = metadata.len();
             if current_size == last_size && current_size > 0 {
                 stable_count = stable_count.saturating_add(1);
@@ -78,7 +78,7 @@ pub async fn process_new_file(
         "{}",
         rust_i18n::t!("monitor.file_stable", filename = filename)
     );
-    let asset_id = extract_uuid_from_preview_filename(&filename)?;
+    let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
 
     let existing_description =
         match check_overwrite_policy(ctx.data_access, &asset_id, ctx.overwrite_policy).await {
@@ -111,7 +111,7 @@ pub async fn process_new_file(
 
     let (analysis, rejected) = match ctx
         .host_manager
-        .analyze_image(preview_path, &final_prompt)
+        .analyze_image(thumbnail_path, &final_prompt)
         .await
     {
         Ok(analysis) => (analysis, false),
@@ -341,7 +341,7 @@ fn handle_fs_events(
                         && let Some(filename_str) = path.file_name().and_then(|n| n.to_str())
                     {
                         let filename = filename_str.to_owned();
-                        if !is_preview_filename(&filename) {
+                        if !is_thumbnail_filename(&filename, config.thumbnail_size) {
                             continue;
                         }
 
@@ -507,18 +507,21 @@ async fn handle_api_poll(
                     tokio::spawn(async move {
                         rust_i18n::set_locale(&config_clone.lang);
 
-                        let preview_path =
-                            match bg_ctx_clone.data_access.get_preview_path(&asset_id).await {
-                                Ok(path) => path,
-                                Err(err) => {
-                                    error!("Failed to get preview for asset {asset_id}: {err}");
-                                    processing_assets_clone
-                                        .lock()
-                                        .expect("Failed to lock processing assets")
-                                        .remove(&asset_id);
-                                    return;
-                                }
-                            };
+                        let thumbnail_path = match bg_ctx_clone
+                            .data_access
+                            .get_thumbnail_path(&asset_id, config_clone.thumbnail_size)
+                            .await
+                        {
+                            Ok(path) => path,
+                            Err(err) => {
+                                error!("Failed to get thumbnail for asset {asset_id}: {err}");
+                                processing_assets_clone
+                                    .lock()
+                                    .expect("Failed to lock processing assets")
+                                    .remove(&asset_id);
+                                return;
+                            }
+                        };
 
                         let ctx = ProcessingContext::new(
                             &bg_ctx_clone.data_access,
@@ -532,7 +535,7 @@ async fn handle_api_poll(
 
                         let result = process_new_file(
                             &ctx,
-                            &preview_path,
+                            &thumbnail_path,
                             config_clone.file_write_timeout,
                             config_clone.file_check_interval,
                         )
@@ -540,10 +543,10 @@ async fn handle_api_poll(
 
                         if let Err(err) = bg_ctx_clone
                             .data_access
-                            .cleanup_preview(&preview_path)
+                            .cleanup_thumbnail(&thumbnail_path)
                             .await
                         {
-                            warn!("Failed to cleanup preview: {err}");
+                            warn!("Failed to cleanup thumbnail: {err}");
                         }
 
                         {

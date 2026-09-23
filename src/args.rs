@@ -11,6 +11,24 @@ pub enum Interface {
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThumbnailSize {
+    /// Preview rendition (higher resolution, slower analysis)
+    #[default]
+    Preview,
+    /// Thumbnail rendition (lower resolution, faster analysis)
+    Thumbnail,
+}
+
+impl std::fmt::Display for ThumbnailSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Preview => write!(f, "preview"),
+            Self::Thumbnail => write!(f, "thumbnail"),
+        }
+    }
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OverwritePolicy {
     /// Skip any asset that already has a description
     #[default]
@@ -71,6 +89,10 @@ pub struct Args {
     /// API poll interval in seconds (for Immich API mode)
     #[arg(long, default_value_t = 10)]
     pub api_poll_interval: u32,
+    /// Which Immich thumbnail rendition to analyze: preview (higher
+    /// resolution, slower analysis) or thumbnail (lower resolution, faster)
+    #[arg(long, value_enum, default_value = "preview")]
+    pub thumbnail_size: ThumbnailSize,
     /// Model name for image analysis
     #[arg(long, default_value = "qwen3-vl:4b-thinking-q4_K_M")]
     pub model_name: String,

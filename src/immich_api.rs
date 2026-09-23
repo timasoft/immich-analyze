@@ -1,4 +1,5 @@
 use crate::{
+    args::ThumbnailSize,
     error::ImageAnalysisError,
     utils::{default_headers, format_error_chain},
 };
@@ -391,22 +392,30 @@ impl ImmichApiProvider {
         Ok(all_assets)
     }
 
-    /// Gets the filesystem path to the preview image for an asset.
+    /// Gets the filesystem path to the thumbnail for an asset.
     ///
-    /// Calls `GET /api/assets/{id}/thumbnail?size=preview` (requires `asset.view` permission).
-    /// Downloads the preview to a temporary file and returns its path.
+    /// Calls `GET /api/assets/{id}/thumbnail?size={preview|thumbnail}`
+    /// (requires `asset.view` permission).
+    /// Downloads the thumbnail to a temporary file and returns its path.
     /// The caller is responsible for cleaning up the temporary file after use.
     /// Tries all API keys until one succeeds.
     ///
     /// # Arguments
     /// * `asset_id` - UUID of the asset
+    /// * `thumbnail_size` - Thumbnail rendition to fetch
     ///
     /// # Returns
-    /// `PathBuf` to the preview image file (either existing file or downloaded temp file)
-    pub async fn get_preview_path(&self, asset_id: &Uuid) -> Result<PathBuf, ImageAnalysisError> {
+    /// `PathBuf` to the thumbnail image file (either existing file or downloaded temp file)
+    pub async fn get_thumbnail_path(
+        &self,
+        asset_id: &Uuid,
+        thumbnail_size: ThumbnailSize,
+    ) -> Result<PathBuf, ImageAnalysisError> {
         let url = self
             .base_url
-            .join(&format!("/api/assets/{asset_id}/thumbnail?size=preview"))
+            .join(&format!(
+                "/api/assets/{asset_id}/thumbnail?size={thumbnail_size}"
+            ))
             .map_err(|err| ImageAnalysisError::InvalidConfig {
                 error: format_error_chain(&err),
             })?;
@@ -425,7 +434,8 @@ impl ImmichApiProvider {
                                 error: format_error_chain(&err),
                             })?;
 
-                    let temp_path = std::env::temp_dir().join(format!("{asset_id}_preview.tmp"));
+                    let temp_path =
+                        std::env::temp_dir().join(format!("{asset_id}_{thumbnail_size}.tmp"));
                     tokio::fs::write(&temp_path, &bytes).await.map_err(|err| {
                         ImageAnalysisError::ProcessingError {
                             filename: asset_id.to_string(),

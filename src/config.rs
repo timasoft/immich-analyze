@@ -1,5 +1,5 @@
 use crate::{
-    args::{Args, OverwritePolicy},
+    args::{Args, OverwritePolicy, ThumbnailSize},
     data_access::DataAccess,
     host_manager::HostManager,
 };
@@ -15,6 +15,7 @@ pub struct MonitorConfig {
     pub enrich_prompt: bool,
     pub preserve_human: bool,
     pub disable_ai_wrapper: bool,
+    pub thumbnail_size: ThumbnailSize,
 }
 
 impl MonitorConfig {
@@ -30,6 +31,7 @@ impl MonitorConfig {
             enrich_prompt: args.enrich_prompt,
             preserve_human: args.preserve_human,
             disable_ai_wrapper: args.disable_ai_wrapper,
+            thumbnail_size: args.thumbnail_size,
         }
     }
 }

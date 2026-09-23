@@ -1,5 +1,5 @@
 use crate::{
-    args::{Interface, OverwritePolicy},
+    args::{Interface, OverwritePolicy, ThumbnailSize},
     data_access::DataAccess,
     database::ImageAnalysisResult,
     error::ImageAnalysisError,
@@ -11,7 +11,7 @@ use reqwest::{
     StatusCode,
     header::{HeaderMap, HeaderValue, USER_AGENT},
 };
-use std::{borrow::Cow, error::Error, path::Path, str::FromStr as _, sync::OnceLock};
+use std::{borrow::Cow, error::Error, io::Cursor, path::Path, str::FromStr as _, sync::OnceLock};
 use strsim::levenshtein;
 use tokio::io::AsyncReadExt as _;
 use uuid::Uuid;
@@ -86,7 +86,7 @@ pub fn get_system_locale() -> String {
         )
 }
 
-static PREVIEW_PATTERN: OnceLock<Regex> = OnceLock::new();
+static THUMBNAIL_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 static UUID_PATTERN: OnceLock<Regex> = OnceLock::new();
 
@@ -97,16 +97,18 @@ pub fn get_ai_block_pattern() -> &'static Regex {
         .get_or_init(|| Regex::new(r"(?s)\[AI\].*?\[/AI\]").expect("Invalid AI block regex"))
 }
 
-pub fn extract_uuid_from_preview_filename(filename: &str) -> Result<Uuid, ImageAnalysisError> {
-    let preview_pattern = PREVIEW_PATTERN.get_or_init(|| {
-        Regex::new("([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[-_]preview")
-            .expect("Invalid preview filename regex")
+pub fn extract_uuid_from_thumbnail_filename(filename: &str) -> Result<Uuid, ImageAnalysisError> {
+    let thumbnail_pattern = THUMBNAIL_PATTERN.get_or_init(|| {
+        Regex::new(
+            "([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[-_](preview|thumbnail)",
+        )
+        .expect("Invalid thumbnail filename regex")
     });
     let uuid_pattern = UUID_PATTERN.get_or_init(|| {
         Regex::new("([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
             .expect("Invalid uuid regex")
     });
-    if let Some(captures) = preview_pattern.captures(filename)
+    if let Some(captures) = thumbnail_pattern.captures(filename)
         && let Some(uuid_str) = captures.get(1)
     {
         return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
@@ -125,8 +127,13 @@ pub fn extract_uuid_from_preview_filename(filename: &str) -> Result<Uuid, ImageA
     })
 }
 
-pub fn is_preview_filename(filename: &str) -> bool {
-    filename.contains("_preview.") || filename.contains("-preview.")
+pub fn is_thumbnail_filename(filename: &str, thumbnail_size: ThumbnailSize) -> bool {
+    match thumbnail_size {
+        ThumbnailSize::Preview => filename.contains("_preview.") || filename.contains("-preview."),
+        ThumbnailSize::Thumbnail => {
+            filename.contains("_thumbnail.") || filename.contains("-thumbnail.")
+        }
+    }
 }
 
 /// Extract filename from a path, falling back to "unknown".
@@ -138,7 +145,7 @@ pub fn filename_from_path(path: &Path) -> String {
         .to_owned()
 }
 
-pub async fn read_image_as_base64(
+pub async fn read_image_as_png_base64(
     image_path: &Path,
     filename: &str,
 ) -> Result<String, ImageAnalysisError> {
@@ -167,7 +174,20 @@ pub async fn read_image_as_base64(
             filename: filename.to_owned(),
             error: format_error_chain(&err),
         })?;
-    Ok(STANDARD.encode(&image_data))
+    let image = image::load_from_memory(&image_data).map_err(|err| {
+        ImageAnalysisError::ProcessingError {
+            filename: filename.to_owned(),
+            error: format_error_chain(&err),
+        }
+    })?;
+    let mut png_data = Cursor::new(Vec::new());
+    image
+        .write_to(&mut png_data, image::ImageFormat::Png)
+        .map_err(|err| ImageAnalysisError::ProcessingError {
+            filename: filename.to_owned(),
+            error: format_error_chain(&err),
+        })?;
+    Ok(STANDARD.encode(png_data.into_inner()))
 }
 
 /// Check overwrite policy and return decision on how to handle the asset.

@@ -1,7 +1,9 @@
+use crate::args::ThumbnailSize;
 use crate::error::ImageAnalysisError;
 use crate::immich_api::{AssetMetadata, AssetRef, ImmichApiProvider};
 use crate::utils::{
-    extract_uuid_from_preview_filename, filename_from_path, format_error_chain, is_preview_filename,
+    extract_uuid_from_thumbnail_filename, filename_from_path, format_error_chain,
+    is_thumbnail_filename,
 };
 use clap::ValueEnum;
 use std::path::{Path, PathBuf};
@@ -62,27 +64,34 @@ impl DataAccess {
     /// Gets a list of assets that need processing (no description yet).
     ///
     /// # Database mode
-    /// Uses `crate::file_processing::get_immich_preview_files` to scan the filesystem,
+    /// Uses `crate::file_processing::get_immich_thumbnail_files` to scan the filesystem,
     ///
     /// # API mode
     /// Fetches from Immich API `/api/search/metadata` endpoint, returning all assets.
     ///
+    /// # Arguments
+    /// * `thumbnail_size` - Which thumbnail rendition to select
+    ///
     /// # Returns
     /// Vector of `AssetRef` structs for assets awaiting description generation.
-    pub async fn get_assets_to_process(&self) -> Result<Vec<AssetRef>, ImageAnalysisError> {
+    pub async fn get_assets_to_process(
+        &self,
+        thumbnail_size: ThumbnailSize,
+    ) -> Result<Vec<AssetRef>, ImageAnalysisError> {
         match self {
             Self::Database {
                 client: _,
                 immich_root,
             } => {
-                let preview_files =
-                    crate::file_processing::get_immich_preview_files(immich_root).await?;
+                let thumbnail_files =
+                    crate::file_processing::get_immich_thumbnail_files(immich_root, thumbnail_size)
+                        .await?;
 
                 let mut assets = Vec::new();
-                for file_path in preview_files {
+                for file_path in thumbnail_files {
                     let filename = filename_from_path(&file_path);
 
-                    if let Ok(asset_id) = extract_uuid_from_preview_filename(&filename) {
+                    if let Ok(asset_id) = extract_uuid_from_thumbnail_filename(&filename) {
                         assets.push(AssetRef { id: asset_id });
                     }
                 }
@@ -92,35 +101,43 @@ impl DataAccess {
         }
     }
 
-    /// Gets the filesystem path to the preview image for an asset.
+    /// Gets the filesystem path to the thumbnail image for an asset.
     ///
     /// # Database mode
     /// Scans the `thumbs/` directory tree under `immich_root` to locate
-    /// the preview file matching the asset UUID, then returns its path.
+    /// the thumbnail file matching the asset UUID, then returns its path.
     ///
     /// # API mode
-    /// Downloads from Immich API `/api/assets/{id}/thumbnail?size=preview` endpoint
+    /// Downloads from Immich API `/api/assets/{id}/thumbnail?size={preview|thumbnail}` endpoint
     /// to a temporary file and returns the temp file path.
     /// Caller is responsible for cleaning up the temporary file.
     ///
     /// # Arguments
     /// * `asset_id` - UUID of the target asset
+    /// * `thumbnail_size` - Which thumbnail rendition to fetch
     ///
     /// # Returns
-    /// `PathBuf` to the preview image file suitable for AI analysis.
-    pub async fn get_preview_path(&self, asset_id: &Uuid) -> Result<PathBuf, ImageAnalysisError> {
+    /// `PathBuf` to the thumbnail image file suitable for AI analysis.
+    pub async fn get_thumbnail_path(
+        &self,
+        asset_id: &Uuid,
+        thumbnail_size: ThumbnailSize,
+    ) -> Result<PathBuf, ImageAnalysisError> {
         match self {
             Self::Database { immich_root, .. } => {
-                Self::find_preview_file_in_thumbs(immich_root, asset_id).await
+                Self::find_thumbnail_file_in_thumbs(immich_root, asset_id, thumbnail_size).await
             }
-            Self::ImmichApi { provider } => provider.get_preview_path(asset_id).await,
+            Self::ImmichApi { provider } => {
+                provider.get_thumbnail_path(asset_id, thumbnail_size).await
+            }
         }
     }
 
-    /// Helper: find preview file in thumbs directory tree for database mode.
-    async fn find_preview_file_in_thumbs(
+    /// Helper: find thumbnail file in thumbs directory tree for database mode.
+    async fn find_thumbnail_file_in_thumbs(
         immich_root: &Path,
         asset_id: &Uuid,
+        thumbnail_size: ThumbnailSize,
     ) -> Result<PathBuf, ImageAnalysisError> {
         let thumbs_dir = immich_root.join("thumbs");
         let mut stack = vec![thumbs_dir];
@@ -135,11 +152,11 @@ impl DataAccess {
                         } else if path.is_file() {
                             let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-                            if !is_preview_filename(filename) {
+                            if !is_thumbnail_filename(filename, thumbnail_size) {
                                 continue;
                             }
 
-                            if let Ok(found_id) = extract_uuid_from_preview_filename(filename)
+                            if let Ok(found_id) = extract_uuid_from_thumbnail_filename(filename)
                                 && found_id == *asset_id
                             {
                                 return Ok(path);
@@ -155,7 +172,7 @@ impl DataAccess {
 
         Err(ImageAnalysisError::ProcessingError {
             filename: asset_id.to_string(),
-            error: "Preview file not found in thumbs directory".to_owned(),
+            error: "Thumbnail file not found in thumbs directory".to_owned(),
         })
     }
 
@@ -288,7 +305,7 @@ impl DataAccess {
         }
     }
 
-    pub async fn cleanup_preview(&self, path: &PathBuf) -> Result<(), ImageAnalysisError> {
+    pub async fn cleanup_thumbnail(&self, path: &Path) -> Result<(), ImageAnalysisError> {
         if matches!(self, Self::ImmichApi { .. }) {
             match tokio::fs::remove_file(path).await {
                 Ok(()) => Ok(()),
