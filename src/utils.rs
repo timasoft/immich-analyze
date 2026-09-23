@@ -11,7 +11,7 @@ use reqwest::{
     StatusCode,
     header::{HeaderMap, HeaderValue, USER_AGENT},
 };
-use std::{borrow::Cow, error::Error, path::Path, str::FromStr as _, sync::OnceLock};
+use std::{borrow::Cow, error::Error, io::Cursor, path::Path, str::FromStr as _, sync::OnceLock};
 use strsim::levenshtein;
 use tokio::io::AsyncReadExt as _;
 use uuid::Uuid;
@@ -145,7 +145,7 @@ pub fn filename_from_path(path: &Path) -> String {
         .to_owned()
 }
 
-pub async fn read_image_as_base64(
+pub async fn read_image_as_png_base64(
     image_path: &Path,
     filename: &str,
 ) -> Result<String, ImageAnalysisError> {
@@ -174,7 +174,20 @@ pub async fn read_image_as_base64(
             filename: filename.to_owned(),
             error: format_error_chain(&err),
         })?;
-    Ok(STANDARD.encode(&image_data))
+    let image = image::load_from_memory(&image_data).map_err(|err| {
+        ImageAnalysisError::ProcessingError {
+            filename: filename.to_owned(),
+            error: format_error_chain(&err),
+        }
+    })?;
+    let mut png_data = Cursor::new(Vec::new());
+    image
+        .write_to(&mut png_data, image::ImageFormat::Png)
+        .map_err(|err| ImageAnalysisError::ProcessingError {
+            filename: filename.to_owned(),
+            error: format_error_chain(&err),
+        })?;
+    Ok(STANDARD.encode(png_data.into_inner()))
 }
 
 /// Check overwrite policy and return decision on how to handle the asset.

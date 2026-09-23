@@ -4,7 +4,7 @@ use crate::{
     utils::{
         ProviderMessageClass, classify_provider_message, closest_name,
         extract_uuid_from_thumbnail_filename, filename_from_path, format_error_chain,
-        is_model_served, read_image_as_base64,
+        is_model_served, read_image_as_png_base64,
     },
 };
 use log::{debug, error, info, warn};
@@ -182,7 +182,7 @@ impl Interface {
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": format!("data:image/jpeg;base64,{}", base64_image)
+                                    "url": format!("data:image/png;base64,{}", base64_image)
                                 }
                             }
                         ]
@@ -355,7 +355,7 @@ impl HostManager {
         debug!("Model: {}, Timeout: {}s", self.model_name, self.timeout);
 
         let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
-        let base64_image = read_image_as_base64(image_path, &filename).await?;
+        let base64_image = read_image_as_png_base64(image_path, &filename).await?;
 
         let request_body =
             self.interface
