@@ -1,4 +1,5 @@
 use crate::{
+    args::ThumbnailSize,
     config::ProcessingContext,
     data_access::DataAccess,
     database::ImageAnalysisResult,
@@ -10,7 +11,7 @@ use crate::{
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
         OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
-        extract_uuid_from_preview_filename, filename_from_path, is_preview_filename,
+        extract_uuid_from_thumbnail_filename, filename_from_path, is_thumbnail_filename,
     },
 };
 use futures::stream::{self, StreamExt as _};
@@ -21,11 +22,12 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-/// Get all preview image files from Immich thumbs directory.
+/// Get all thumbnail image files from Immich thumbs directory.
 ///
-/// This function is used in database mode to scan the filesystem for preview files.
-pub async fn get_immich_preview_files(
+/// This function is used in database mode to scan the filesystem for thumbnail files.
+pub async fn get_immich_thumbnail_files(
     immich_root: &Path,
+    thumbnail_size: ThumbnailSize,
 ) -> Result<Vec<PathBuf>, ImageAnalysisError> {
     let thumbs_dir = immich_root.join("thumbs");
     if !thumbs_dir.exists() {
@@ -46,7 +48,7 @@ pub async fn get_immich_preview_files(
             .to_string(),
         });
     }
-    let mut preview_files = Vec::new();
+    let mut thumbnail_files = Vec::new();
     let mut stack = vec![thumbs_dir];
     while let Some(current_dir) = stack.pop() {
         match tokio::fs::read_dir(&current_dir).await {
@@ -57,9 +59,9 @@ pub async fn get_immich_preview_files(
                         stack.push(path);
                     } else if path.is_file()
                         && let Some(filename) = path.file_name().and_then(|name| name.to_str())
-                        && is_preview_filename(filename)
+                        && is_thumbnail_filename(filename, thumbnail_size)
                     {
-                        preview_files.push(path);
+                        thumbnail_files.push(path);
                     }
                 }
             }
@@ -68,7 +70,7 @@ pub async fn get_immich_preview_files(
             }
         }
     }
-    Ok(preview_files)
+    Ok(thumbnail_files)
 }
 
 async fn process_file_with_existing_check(
@@ -76,7 +78,7 @@ async fn process_file_with_existing_check(
     path: &Path,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     let filename = filename_from_path(path);
-    let asset_id = extract_uuid_from_preview_filename(&filename)?;
+    let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
 
     match check_overwrite_policy(ctx.data_access, &asset_id, ctx.overwrite_policy).await? {
         OverwriteDecision::Skip => Err(ImageAnalysisError::AlreadyProcessed { filename }),
@@ -97,18 +99,13 @@ async fn process_file(
 
     let filename = filename_from_path(path);
 
-    let asset_id = extract_uuid_from_preview_filename(&filename)?;
+    let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
 
-    let preview_path = data_access.get_preview_path(&asset_id).await?;
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await
         .unwrap_or_else(|| ctx.prompt.to_owned());
 
-    let (analysis, rejected) = match ctx
-        .host_manager
-        .analyze_image(&preview_path, &final_prompt)
-        .await
-    {
+    let (analysis, rejected) = match ctx.host_manager.analyze_image(path, &final_prompt).await {
         Ok(analysis) => (analysis, false),
         Err(ImageAnalysisError::ProviderRejected {
             status, message, ..
@@ -122,8 +119,8 @@ async fn process_file(
         Err(err) => return Err(err),
     };
 
-    if let Err(err) = data_access.cleanup_preview(&preview_path).await {
-        warn!("Failed to cleanup preview: {err}");
+    if let Err(err) = data_access.cleanup_thumbnail(path).await {
+        warn!("Failed to cleanup thumbnail: {err}");
     }
 
     let final_description = build_final_description(
@@ -168,8 +165,11 @@ pub async fn process_files_concurrently(
         async move {
             rust_i18n::set_locale(&lang);
             mark_activity();
-            let preview_path = match data_access.get_preview_path(&asset_id).await {
-                Ok(preview_path) => preview_path,
+            let thumbnail_path = match data_access
+                .get_thumbnail_path(&asset_id, args.thumbnail_size)
+                .await
+            {
+                Ok(thumbnail_path) => thumbnail_path,
                 Err(err) => {
                     let filename = asset_id.to_string();
                     progress_clone
@@ -185,7 +185,7 @@ pub async fn process_files_concurrently(
                     return (filename, Err(err));
                 }
             };
-            let filename = filename_from_path(&preview_path);
+            let filename = filename_from_path(&thumbnail_path);
             progress_clone
                 .lock()
                 .await
@@ -201,7 +201,7 @@ pub async fn process_files_concurrently(
                 args.disable_ai_wrapper,
             );
 
-            let result = process_file_with_existing_check(&ctx, &preview_path).await;
+            let result = process_file_with_existing_check(&ctx, &thumbnail_path).await;
             match &result {
                 Err(
                     ImageAnalysisError::AlreadyProcessed { .. }

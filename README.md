@@ -206,6 +206,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `IMMICH_ANALYZE_OVERWRITE_POLICY` | Overwrite policy: `none` (skip any with description), `all` (process everything), `missing-ai` (process only if no `[AI]...[/AI]` block). Overrides `IMMICH_ANALYZE_OVERWRITE_EXISTING` | `none` |
 | `IMMICH_ANALYZE_PRESERVE_HUMAN` | If true, preserve human text outside `[AI]...[/AI]` blocks by only replacing the AI block. Incompatible with `--disable-ai-wrapper` | `false` |
 | `IMMICH_ANALYZE_LANG` | Interface language for the application (en, ru) | `en` |
+| `IMMICH_ANALYZE_THUMBNAIL_SIZE` | Which Immich thumbnail rendition to analyze: `preview` (higher resolution, slower) or `thumbnail` (lower resolution, faster) | `preview` |
 | `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent AI requests | `4` |
 | `IMMICH_ANALYZE_UNAVAILABLE_DURATION` | Host availability check interval in seconds | `60` |
 | `IMMICH_ANALYZE_TIMEOUT` | AI request timeout in seconds | `300` |
@@ -252,6 +253,8 @@ Options:
           Immich API authentication key(s) (required when using api access mode). Provide multiple keys comma-separated for multi-user setups [env: IMMICH_API_KEY]
       --api-poll-interval <API_POLL_INTERVAL>
           API poll interval in seconds (for Immich API mode) [default: 10]
+      --thumbnail-size <THUMBNAIL_SIZE>
+          Which Immich thumbnail rendition to analyze: preview (higher resolution, slower analysis) or thumbnail (lower resolution, faster) [default: preview] [possible values: preview, thumbnail]
       --model-name <MODEL_NAME>
           Model name for image analysis [default: qwen3-vl:4b-thinking-q4_K_M]
       --interface <INTERFACE>
@@ -560,6 +563,18 @@ RUST_LOG=debug immich-analyze --combined ...
 - Verify `IMMICH_API_URL` is reachable: `curl $IMMICH_API_URL/api/server/ping`
 - Verify API key has sufficient permissions in Immich admin panel
 - Check Immich server logs for authentication errors
+
+### Slow analysis on local vision backends
+
+By default `immich-analyze` sends the Immich **preview** rendition to the AI service. If your `preview-size` is set high, local backends such as Ollama or `llama.cpp` have to encode large multimodal patches.
+
+Use the thumbnail instead of the preview:
+```bash
+immich-analyze --thumbnail-size thumbnail ...
+# or via env var in Docker:
+# IMMICH_ANALYZE_THUMBNAIL_SIZE=thumbnail
+```
+Thumbnails are analyzed faster but at lower image quality, which may reduce the accuracy of the generated descriptions.
 
 ### Permanent provider rejections (content-policy / blocked content)
 

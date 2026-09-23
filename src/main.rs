@@ -245,7 +245,9 @@ async fn run_batch_mode(
         rust_i18n::t!("main.database_connected", path = "Immich data source")
     );
 
-    let assets = data_access.get_assets_to_process().await?;
+    let assets = data_access
+        .get_assets_to_process(args.thumbnail_size)
+        .await?;
 
     println!(
         "{}",

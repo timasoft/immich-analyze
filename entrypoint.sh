@@ -89,6 +89,10 @@ if [ -n "$IMMICH_ANALYZE_MODEL_NAME" ]; then
     args+=("--model-name" "$IMMICH_ANALYZE_MODEL_NAME")
 fi
 
+if [ -n "$IMMICH_ANALYZE_THUMBNAIL_SIZE" ]; then
+    args+=("--thumbnail-size" "$IMMICH_ANALYZE_THUMBNAIL_SIZE")
+fi
+
 if [ -n "$IMMICH_ANALYZE_PROMPT" ]; then
     args+=("--prompt" "$IMMICH_ANALYZE_PROMPT")
 fi

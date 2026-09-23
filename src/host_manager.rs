@@ -3,7 +3,7 @@ use crate::{
     error::ImageAnalysisError,
     utils::{
         ProviderMessageClass, classify_provider_message, closest_name,
-        extract_uuid_from_preview_filename, filename_from_path, format_error_chain,
+        extract_uuid_from_thumbnail_filename, filename_from_path, format_error_chain,
         is_model_served, read_image_as_base64,
     },
 };
@@ -354,7 +354,7 @@ impl HostManager {
         );
         debug!("Model: {}, Timeout: {}s", self.model_name, self.timeout);
 
-        let asset_id = extract_uuid_from_preview_filename(&filename)?;
+        let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
         let base64_image = read_image_as_base64(image_path, &filename).await?;
 
         let request_body =
