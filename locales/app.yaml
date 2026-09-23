@@ -93,8 +93,8 @@ progress.skipped:
   en: " Skipped: %{filename}"
   ru: " Пропущено: %{filename}"
 progress.error:
-  en: " Error processing: %{filename}"
-  ru: " Ошибка обработки: %{filename}"
+  en: " Error processing %{filename}: %{error}"
+  ru: " Ошибка обработки %{filename}: %{error}"
 progress.finished:
   en: " Finished processing: %{filename}"
   ru: " Обработка завершена: %{filename}"

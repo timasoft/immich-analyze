@@ -175,12 +175,11 @@ pub async fn process_files_concurrently(
                     progress_clone
                         .lock()
                         .await
-                        .set_message(&rust_i18n::t!("progress.error", filename = filename));
-
-                    progress_clone
-                        .lock()
-                        .await
-                        .set_message_and_inc(&rust_i18n::t!("progress.error", filename = filename));
+                        .set_message_and_inc(&rust_i18n::t!(
+                            "progress.error",
+                            filename = filename,
+                            error = err.user_message()
+                        ));
 
                     return (filename, Err(err));
                 }
