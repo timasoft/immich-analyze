@@ -207,6 +207,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `IMMICH_ANALYZE_PRESERVE_HUMAN` | If true, preserve human text outside `[AI]...[/AI]` blocks by only replacing the AI block. Incompatible with `--disable-ai-wrapper` | `false` |
 | `IMMICH_ANALYZE_LANG` | Interface language for the application (en, ru) | `en` |
 | `IMMICH_ANALYZE_THUMBNAIL_SIZE` | Which Immich thumbnail rendition to analyze: `preview` (higher resolution, slower) or `thumbnail` (lower resolution, faster) | `preview` |
+| `IMMICH_ANALYZE_MAX_IMAGE_SIZE` | Downscale images whose longest edge exceeds this many pixels before sending them to the AI service (preserves aspect ratio). `0` disables downscaling | `0` |
 | `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent AI requests | `4` |
 | `IMMICH_ANALYZE_UNAVAILABLE_DURATION` | Host availability check interval in seconds | `60` |
 | `IMMICH_ANALYZE_TIMEOUT` | AI request timeout in seconds | `300` |
@@ -255,6 +256,8 @@ Options:
           API poll interval in seconds (for Immich API mode) [default: 10]
       --thumbnail-size <THUMBNAIL_SIZE>
           Which Immich thumbnail rendition to analyze: preview (higher resolution, slower analysis) or thumbnail (lower resolution, faster) [default: preview] [possible values: preview, thumbnail]
+      --max-image-size <MAX_IMAGE_SIZE>
+          Downscale images whose longest edge exceeds this many pixels before sending them to the AI service (preserves aspect ratio). 0 disables downscaling [default: 0]
       --model-name <MODEL_NAME>
           Model name for image analysis [default: qwen3-vl:4b-thinking-q4_K_M]
       --interface <INTERFACE>
@@ -575,6 +578,13 @@ immich-analyze --thumbnail-size thumbnail ...
 # IMMICH_ANALYZE_THUMBNAIL_SIZE=thumbnail
 ```
 Thumbnails are analyzed faster but at lower image quality, which may reduce the accuracy of the generated descriptions.
+
+Downscale the image locally before sending it:
+```bash
+immich-analyze --max-image-size 1024 ...
+# or via env var in Docker:
+# IMMICH_ANALYZE_MAX_IMAGE_SIZE=1024
+```
 
 ### Permanent provider rejections (content-policy / blocked content)
 

@@ -140,6 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(args.retry_delay_seconds),
         Duration::from_secs(args.unavailable_duration),
         args.api_key.clone(),
+        args.max_image_size,
     ));
 
     if !args.no_preflight_model_check

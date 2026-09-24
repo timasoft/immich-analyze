@@ -5,7 +5,7 @@ use crate::{
     error::ImageAnalysisError,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use log::warn;
+use log::{debug, warn};
 use regex::Regex;
 use reqwest::{
     StatusCode,
@@ -148,6 +148,7 @@ pub fn filename_from_path(path: &Path) -> String {
 pub async fn read_image_as_png_base64(
     image_path: &Path,
     filename: &str,
+    max_image_size: u32,
 ) -> Result<String, ImageAnalysisError> {
     let metadata = tokio::fs::metadata(image_path).await.map_err(|err| {
         ImageAnalysisError::ProcessingError {
@@ -181,7 +182,24 @@ pub async fn read_image_as_png_base64(
         }
     })?;
     let mut png_data = Cursor::new(Vec::new());
-    image
+    let output_image = if max_image_size > 0 && image.width().max(image.height()) > max_image_size {
+        let resized = image.resize(
+            max_image_size,
+            max_image_size,
+            image::imageops::FilterType::Lanczos3,
+        );
+        debug!(
+            "Downscaling {filename} from {}x{} to {}x{}",
+            image.width(),
+            image.height(),
+            resized.width(),
+            resized.height()
+        );
+        resized
+    } else {
+        image
+    };
+    output_image
         .write_to(&mut png_data, image::ImageFormat::Png)
         .map_err(|err| ImageAnalysisError::ProcessingError {
             filename: filename.to_owned(),

@@ -230,6 +230,7 @@ pub struct HostManager {
     permanently_unavailable_hosts: Arc<Mutex<HashSet<String>>>,
     unavailable_duration: Duration,
     api_key: Option<String>,
+    max_image_size: u32,
 }
 
 impl HostManager {
@@ -244,6 +245,7 @@ impl HostManager {
         retry_delay: Duration,
         unavailable_duration: Duration,
         api_key: Option<String>,
+        max_image_size: u32,
     ) -> Self {
         Self {
             hosts,
@@ -257,6 +259,7 @@ impl HostManager {
             permanently_unavailable_hosts: Arc::new(Mutex::new(HashSet::new())),
             unavailable_duration,
             api_key,
+            max_image_size,
         }
     }
 
@@ -355,7 +358,8 @@ impl HostManager {
         debug!("Model: {}, Timeout: {}s", self.model_name, self.timeout);
 
         let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
-        let base64_image = read_image_as_png_base64(image_path, &filename).await?;
+        let base64_image =
+            read_image_as_png_base64(image_path, &filename, self.max_image_size).await?;
 
         let request_body =
             self.interface
