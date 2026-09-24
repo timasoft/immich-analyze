@@ -168,6 +168,10 @@ if [[ "$IMMICH_ANALYZE_WAIT_RETRY_INTERVAL" =~ ^[0-9]+$ ]]; then
     args+=("--wait-retry-interval" "$IMMICH_ANALYZE_WAIT_RETRY_INTERVAL")
 fi
 
+if [[ "$IMMICH_ANALYZE_MAX_IMAGE_SIZE" =~ ^[0-9]+$ ]]; then
+    args+=("--max-image-size" "$IMMICH_ANALYZE_MAX_IMAGE_SIZE")
+fi
+
 echo "Running immich-analyze with args: ${args[@]}"
 
 # Execute with proper signal handling

@@ -93,6 +93,10 @@ pub struct Args {
     /// resolution, slower analysis) or thumbnail (lower resolution, faster)
     #[arg(long, value_enum, default_value = "preview")]
     pub thumbnail_size: ThumbnailSize,
+    /// Downscale images whose longest edge exceeds this many pixels before sending
+    /// them to the AI service (preserves aspect ratio). 0 disables downscaling
+    #[arg(long, default_value_t = 0)]
+    pub max_image_size: u32,
     /// Model name for image analysis
     #[arg(long, default_value = "qwen3-vl:4b-thinking-q4_K_M")]
     pub model_name: String,
