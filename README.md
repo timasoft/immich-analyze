@@ -454,6 +454,7 @@ To re-attempt blocked assets, run with `--overwrite-policy all` (not recommended
 - [x] ~~Add waiting list~~ Add retry logic
 - [x] Rename ignore-existing option/variable to overwrite-existing
 - [x] Add support for multiple Immich API keys
+- [ ] Add tests
 - [ ] Add JWT support
 - [ ] Add NixOS service module
 - [ ] Add video support
