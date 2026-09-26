@@ -1,6 +1,6 @@
 use crate::{
     args::Interface,
-    error::ImageAnalysisError,
+    error::{ErrorSubject, ImageAnalysisError},
     utils::{
         ProviderMessageClass, classify_provider_message, closest_name, format_error_chain,
         image_bytes_to_png_base64, is_model_served,
@@ -498,7 +498,7 @@ impl HostManager {
                                             "Failed to extract content from response for {asset_id}"
                                         );
                                         last_error = Some(ImageAnalysisError::JsonParsing {
-                                            subject: asset_id.to_string(),
+                                            subject: ErrorSubject::Asset(asset_id),
                                             error: "No content field found in response".to_owned(),
                                         });
                                     }
@@ -508,7 +508,7 @@ impl HostManager {
                                         "Failed to parse response as JSON for {asset_id}: {parse_error}"
                                     );
                                     let error = ImageAnalysisError::JsonParsing {
-                                        subject: asset_id.to_string(),
+                                        subject: ErrorSubject::Asset(asset_id),
                                         error: format_error_chain(&parse_error),
                                     };
                                     if !error.is_retryable() {
@@ -541,7 +541,7 @@ impl HostManager {
                             } else {
                                 ImageAnalysisError::HttpError {
                                     status,
-                                    subject: asset_id.to_string(),
+                                    subject: ErrorSubject::Asset(asset_id),
                                     response: response_text,
                                 }
                             };
@@ -656,7 +656,7 @@ impl HostManager {
                     Ok(value) => self.interface.model_names(&value),
                     Err(err) => {
                         return HostCheck::Failed(ImageAnalysisError::JsonParsing {
-                            subject: "models_list".to_owned(),
+                            subject: ErrorSubject::ModelsList,
                             error: format_error_chain(&err),
                         });
                     }
@@ -669,7 +669,7 @@ impl HostManager {
                 let status = response.status();
                 return HostCheck::Failed(ImageAnalysisError::HttpError {
                     status,
-                    subject: "models_list".to_owned(),
+                    subject: ErrorSubject::ModelsList,
                     response: response.text().await.unwrap_or_default(),
                 });
             }
@@ -718,7 +718,7 @@ impl HostManager {
             }
             Ok(response) => HostCheck::Failed(ImageAnalysisError::HttpError {
                 status: response.status(),
-                subject: "test completion".to_owned(),
+                subject: ErrorSubject::TestCompletion,
                 response: response.text().await.unwrap_or_default(),
             }),
             Err(err) => HostCheck::Failed(ImageAnalysisError::HttpClientError {

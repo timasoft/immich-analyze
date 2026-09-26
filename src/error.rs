@@ -1,6 +1,26 @@
 use reqwest::StatusCode;
+use std::fmt::Display;
 use thiserror::Error;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Copy)]
+pub enum ErrorSubject {
+    AssetsList,
+    ModelsList,
+    TestCompletion,
+    Asset(Uuid),
+}
+
+impl Display for ErrorSubject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AssetsList => f.write_str("assets list"),
+            Self::ModelsList => f.write_str("models list"),
+            Self::TestCompletion => f.write_str("test completion"),
+            Self::Asset(asset_id) => write!(f, "asset {asset_id}"),
+        }
+    }
+}
 
 #[derive(Debug, Error, Clone)]
 pub enum ImageAnalysisError {
@@ -9,13 +29,16 @@ pub enum ImageAnalysisError {
     #[error("HTTP error {status} for {subject}: {response}")]
     HttpError {
         status: StatusCode,
-        subject: String,
+        subject: ErrorSubject,
         response: String,
     },
     #[error("Empty response for {asset_id}")]
     EmptyResponse { asset_id: Uuid },
     #[error("JSON parsing error for {subject}: {error}")]
-    JsonParsing { subject: String, error: String },
+    JsonParsing {
+        subject: ErrorSubject,
+        error: String,
+    },
     #[error("Processing error for {asset_id}: {error}")]
     ProcessingError { asset_id: Uuid, error: String },
     #[error("Already processed: {asset_id}")]
@@ -67,21 +90,52 @@ impl ImageAnalysisError {
                 status,
                 subject,
                 response,
-            } => rust_i18n::t!(
-                "error.http_error_with_details",
-                subject = subject,
-                status = status.to_string(),
-                response = response
-            )
+            } => match subject {
+                ErrorSubject::AssetsList => rust_i18n::t!(
+                    "error.http_error_with_details_for_assets_list",
+                    status = status.to_string(),
+                    response = response
+                ),
+                ErrorSubject::ModelsList => rust_i18n::t!(
+                    "error.http_error_with_details_for_models_list",
+                    status = status.to_string(),
+                    response = response
+                ),
+                ErrorSubject::TestCompletion => rust_i18n::t!(
+                    "error.http_error_with_details_for_test_completion",
+                    status = status.to_string(),
+                    response = response
+                ),
+                ErrorSubject::Asset(asset_id) => rust_i18n::t!(
+                    "error.http_error_with_details_for_asset",
+                    asset_id = asset_id,
+                    status = status.to_string(),
+                    response = response
+                ),
+            }
             .to_string(),
             Self::EmptyResponse { asset_id } => {
                 rust_i18n::t!("error.empty_response", asset_id = asset_id).to_string()
             }
-            Self::JsonParsing { subject, error } => rust_i18n::t!(
-                "error.json_parsing_with_details",
-                subject = subject,
-                error = error
-            )
+            Self::JsonParsing { subject, error } => match subject {
+                ErrorSubject::AssetsList => rust_i18n::t!(
+                    "error.json_parsing_with_details_for_assets_list",
+                    error = error,
+                ),
+                ErrorSubject::ModelsList => rust_i18n::t!(
+                    "error.json_parsing_with_details_for_models_list",
+                    error = error,
+                ),
+                ErrorSubject::TestCompletion => rust_i18n::t!(
+                    "error.json_parsing_with_details_for_test_completion",
+                    error = error,
+                ),
+                ErrorSubject::Asset(asset_id) => rust_i18n::t!(
+                    "error.json_parsing_with_details_for_asset",
+                    asset_id = asset_id,
+                    error = error,
+                ),
+            }
             .to_string(),
             Self::AllHostsUnavailable => rust_i18n::t!("error.all_hosts_unavailable").to_string(),
             Self::AiRequestTimeout => rust_i18n::t!("error.ai_request_timeout").to_string(),

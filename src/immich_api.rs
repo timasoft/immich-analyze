@@ -1,6 +1,6 @@
 use crate::{
     args::ThumbnailSize,
-    error::ImageAnalysisError,
+    error::{ErrorSubject, ImageAnalysisError},
     utils::{default_headers, format_error_chain},
 };
 use bytes::Bytes;
@@ -355,7 +355,7 @@ impl ImmichApiProvider {
                     };
                     return Err(ImageAnalysisError::HttpError {
                         status,
-                        subject: "assets_list".to_owned(),
+                        subject: ErrorSubject::AssetsList,
                         response: body,
                     });
                 }
@@ -365,7 +365,7 @@ impl ImmichApiProvider {
                         .json()
                         .await
                         .map_err(|err| ImageAnalysisError::JsonParsing {
-                            subject: "assets_list".to_owned(),
+                            subject: ErrorSubject::AssetsList,
                             error: format_error_chain(&err),
                         })?;
 
@@ -438,7 +438,7 @@ impl ImmichApiProvider {
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status(),
-                        subject: asset_id.to_string(),
+                        subject: ErrorSubject::Asset(*asset_id),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -502,7 +502,7 @@ impl ImmichApiProvider {
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status(),
-                        subject: asset_id.to_string(),
+                        subject: ErrorSubject::Asset(*asset_id),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -557,7 +557,7 @@ impl ImmichApiProvider {
                         resp.json()
                             .await
                             .map_err(|err| ImageAnalysisError::JsonParsing {
-                                subject: asset_id.to_string(),
+                                subject: ErrorSubject::Asset(*asset_id),
                                 error: format_error_chain(&err),
                             })?;
 
@@ -570,7 +570,7 @@ impl ImmichApiProvider {
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status(),
-                        subject: asset_id.to_string(),
+                        subject: ErrorSubject::Asset(*asset_id),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -671,7 +671,7 @@ impl ImmichApiProvider {
                         resp.json()
                             .await
                             .map_err(|err| ImageAnalysisError::JsonParsing {
-                                subject: asset_id.to_string(),
+                                subject: ErrorSubject::Asset(*asset_id),
                                 error: format_error_chain(&err),
                             })?;
 
@@ -680,7 +680,7 @@ impl ImmichApiProvider {
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status(),
-                        subject: asset_id.to_string(),
+                        subject: ErrorSubject::Asset(*asset_id),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
