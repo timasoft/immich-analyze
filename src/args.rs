@@ -16,6 +16,8 @@ pub enum ThumbnailSize {
     Preview,
     /// Thumbnail rendition (lower resolution, faster analysis)
     Thumbnail,
+    /// Fullsize rendition (highest resolution, slowest analysis)
+    Fullsize,
 }
 
 impl std::fmt::Display for ThumbnailSize {
@@ -23,6 +25,7 @@ impl std::fmt::Display for ThumbnailSize {
         match self {
             Self::Preview => write!(f, "preview"),
             Self::Thumbnail => write!(f, "thumbnail"),
+            Self::Fullsize => write!(f, "fullsize"),
         }
     }
 }
@@ -77,7 +80,8 @@ pub struct Args {
     #[arg(long, default_value_t = 10)]
     pub api_poll_interval: u32,
     /// Which Immich thumbnail rendition to analyze: preview (higher
-    /// resolution, slower analysis) or thumbnail (lower resolution, faster)
+    /// resolution, slower analysis), thumbnail (lower resolution, faster)
+    /// or fullsize (highest resolution, slowest)
     #[arg(long, value_enum, default_value = "preview")]
     pub thumbnail_size: ThumbnailSize,
     /// Downscale images whose longest edge exceeds this many pixels before sending
