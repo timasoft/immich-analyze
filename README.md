@@ -170,7 +170,7 @@ IMMICH_API_URL=http://localhost:2283 IMMICH_API_KEY=your_key nix run github:tima
 | `IMMICH_ANALYZE_OVERWRITE_POLICY` | Overwrite policy: `none` (skip any with description), `all` (process everything), `missing-ai` (process only if no `[AI]...[/AI]` block). Overrides `IMMICH_ANALYZE_OVERWRITE_EXISTING` | `none` |
 | `IMMICH_ANALYZE_PRESERVE_HUMAN` | If true, preserve human text outside `[AI]...[/AI]` blocks by only replacing the AI block. Incompatible with `--disable-ai-wrapper` | `false` |
 | `IMMICH_ANALYZE_LANG` | Interface language for the application (en, ru) | `en` |
-| `IMMICH_ANALYZE_THUMBNAIL_SIZE` | Which Immich thumbnail rendition to analyze: `preview` (higher resolution, slower) or `thumbnail` (lower resolution, faster) | `preview` |
+| `IMMICH_ANALYZE_THUMBNAIL_SIZE` | Which Immich thumbnail rendition to analyze: `preview` (higher resolution, slower), `thumbnail` (lower resolution, faster) or `fullsize` (highest resolution, slowest) | `preview` |
 | `IMMICH_ANALYZE_MAX_IMAGE_SIZE` | Downscale images whose longest edge exceeds this many pixels before sending them to the AI service (preserves aspect ratio). `0` disables downscaling | `0` |
 | `IMMICH_ANALYZE_MAX_CONCURRENT` | Max concurrent AI requests | `4` |
 | `IMMICH_ANALYZE_UNAVAILABLE_DURATION` | Host availability check interval in seconds | `60` |
@@ -213,7 +213,7 @@ Options:
       --api-poll-interval <API_POLL_INTERVAL>
           API poll interval in seconds [default: 10]
       --thumbnail-size <THUMBNAIL_SIZE>
-          Which Immich thumbnail rendition to analyze: preview (higher resolution, slower analysis) or thumbnail (lower resolution, faster) [default: preview] [possible values: preview, thumbnail]
+          Which Immich thumbnail rendition to analyze: preview (higher resolution, slower analysis), thumbnail (lower resolution, faster) or fullsize (highest resolution, slowest) [default: preview] [possible values: preview, thumbnail, fullsize]
       --max-image-size <MAX_IMAGE_SIZE>
           Downscale images whose longest edge exceeds this many pixels before sending them to the AI service (preserves aspect ratio). 0 disables downscaling [default: 0]
       --model-name <MODEL_NAME>
@@ -374,22 +374,22 @@ The application integrates with your Immich instance by analyzing preview images
 - **Monitor Mode**: Automatically process new images as they're added to Immich
 - **Combined Mode**: Process existing images in background while simultaneously monitoring for new additions
 
-#### Immich API
+### Immich API
 - Uses Immich REST API for all data operations
 - No direct database or filesystem access required
 - Polls Immich API for new assets at configurable interval (`--api-poll-interval`)
 - Requires `IMMICH_API_URL` and `IMMICH_API_KEY` environment variables (supports multiple comma-separated keys)
 
-##### Required API Key Permissions
+#### Required API Key Permissions
 
 The API key used must have the following permissions enabled in the Immich admin panel:
 
-| Endpoint                     | Method | Permission     | Purpose                                     |
-|------------------------------|--------|----------------|---------------------------------------------|
-| `/api/search/metadata`       | POST   | `asset.read`   | List/search assets for batch processing     |
-| `/api/assets/{id}/thumbnail` | GET    | `asset.view`   | Download preview images for AI analysis     |
-| `/api/assets/{id}`           | PUT    | `asset.update` | Write generated descriptions back to assets |
-| `/api/assets/{id}`           | GET    | `asset.read`   | Check asset existence and read metadata     |
+| Endpoint                     | Method | Permission                                      | Purpose                                     |
+|------------------------------|--------|-------------------------------------------------|---------------------------------------------|
+| `/api/search/metadata`       | POST   | `asset.read`                                    | List/search assets for batch processing     |
+| `/api/assets/{id}/thumbnail` | GET    | `asset.view` (+ `asset.download` on `fullsize`) | Download thumbnail images for AI analysis   |
+| `/api/assets/{id}`           | PUT    | `asset.update`                                  | Write generated descriptions back to assets |
+| `/api/assets/{id}`           | GET    | `asset.read`                                    | Check asset existence and read metadata     |
 
 > **Note**: Ensure all three permissions (`asset.read`, `asset.view`, `asset.update`) are enabled.
 
