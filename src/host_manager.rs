@@ -3,16 +3,16 @@ use crate::{
     error::ImageAnalysisError,
     utils::{
         ProviderMessageClass, classify_provider_message, closest_name, format_error_chain,
-        is_model_served, read_image_as_png_base64,
+        image_bytes_to_png_base64, is_model_served,
     },
 };
+use bytes::Bytes;
 use log::{debug, error, info, warn};
 use reqwest::{Client, StatusCode, header::HeaderValue};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU32,
-    path::Path,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -352,7 +352,7 @@ impl HostManager {
 
     pub async fn analyze_image(
         &self,
-        image_path: &Path,
+        image_data: Bytes,
         prompt: &str,
         asset_id: Uuid,
     ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
@@ -362,12 +362,20 @@ impl HostManager {
         );
         debug!("Model: {}, Timeout: {}s", self.model_name, self.timeout);
 
-        let base64_image =
-            read_image_as_png_base64(image_path, asset_id, self.max_image_size).await?;
+        let max_image_size = self.max_image_size;
+        let base64_image = tokio::task::spawn_blocking(move || {
+            image_bytes_to_png_base64(image_data, asset_id, max_image_size)
+        })
+        .await
+        .map_err(|err| ImageAnalysisError::ProcessingError {
+            asset_id,
+            error: format_error_chain(&err),
+        })??;
 
         let request_body =
             self.interface
                 .build_request_body(&self.model_name, prompt, &base64_image);
+        drop(base64_image);
 
         let endpoint = self.interface.endpoint();
 

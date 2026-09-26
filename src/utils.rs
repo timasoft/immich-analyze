@@ -5,15 +5,15 @@ use crate::{
     immich_api::ImmichApiProvider,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use bytes::Bytes;
 use log::{debug, warn};
 use regex::Regex;
 use reqwest::{
     StatusCode,
     header::{HeaderMap, HeaderValue, USER_AGENT},
 };
-use std::{borrow::Cow, error::Error, io::Cursor, path::Path, sync::OnceLock};
+use std::{borrow::Cow, error::Error, io::Cursor, sync::OnceLock};
 use strsim::levenshtein;
-use tokio::io::AsyncReadExt as _;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,40 +93,21 @@ pub fn get_ai_block_pattern() -> &'static Regex {
         .get_or_init(|| Regex::new(r"(?s)\[AI\].*?\[/AI\]").expect("Invalid AI block regex"))
 }
 
-pub async fn read_image_as_png_base64(
-    image_path: &Path,
+pub fn image_bytes_to_png_base64(
+    image_data: Bytes,
     asset_id: Uuid,
     max_image_size: u32,
 ) -> Result<String, ImageAnalysisError> {
-    let metadata = tokio::fs::metadata(image_path).await.map_err(|err| {
-        ImageAnalysisError::ProcessingError {
-            asset_id,
-            error: format_error_chain(&err),
-        }
-    })?;
-    if metadata.len() == 0 {
+    if image_data.is_empty() {
         return Err(ImageAnalysisError::EmptyFile { asset_id });
     }
-    let mut image_file = tokio::fs::File::open(image_path).await.map_err(|err| {
-        ImageAnalysisError::ProcessingError {
-            asset_id,
-            error: format_error_chain(&err),
-        }
-    })?;
-    let mut image_data = Vec::new();
-    image_file
-        .read_to_end(&mut image_data)
-        .await
-        .map_err(|err| ImageAnalysisError::ProcessingError {
-            asset_id,
-            error: format_error_chain(&err),
-        })?;
     let image = image::load_from_memory(&image_data).map_err(|err| {
         ImageAnalysisError::ProcessingError {
             asset_id,
             error: format_error_chain(&err),
         }
     })?;
+    drop(image_data);
     let mut png_data = Cursor::new(Vec::new());
     let output_image = if max_image_size > 0 && image.width().max(image.height()) > max_image_size {
         let resized = image.resize(
@@ -141,6 +122,7 @@ pub async fn read_image_as_png_base64(
             resized.width(),
             resized.height()
         );
+        drop(image);
         resized
     } else {
         image
@@ -392,16 +374,5 @@ pub fn classify_provider_message(message: &str) -> ProviderMessageClass {
         ProviderMessageClass::Transient
     } else {
         ProviderMessageClass::Unknown
-    }
-}
-
-pub async fn cleanup_thumbnail(path: &Path) -> Result<(), ImageAnalysisError> {
-    match tokio::fs::remove_file(path).await {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(ImageAnalysisError::IoError {
-            path: path.display().to_string(),
-            error: format_error_chain(&err),
-        }),
     }
 }
