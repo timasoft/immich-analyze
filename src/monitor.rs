@@ -1,30 +1,21 @@
 use crate::{
     config::{MonitorConfig, ProcessingContext},
-    data_access::DataAccess,
-    database::ImageAnalysisResult,
     error::ImageAnalysisError,
     health::mark_activity,
-    host_manager::HostManager,
+    host_manager::{HostManager, ImageAnalysisResult},
     immich_api::ImmichApiProvider,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
         OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
-        extract_uuid_from_thumbnail_filename, filename_from_path, is_thumbnail_filename,
+        cleanup_thumbnail,
     },
 };
 use log::{error, warn};
-use notify::{
-    event::ModifyKind,
-    {Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _},
-};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     path::Path,
-    sync::{
-        Arc, Mutex,
-        mpsc::{self, Receiver, Sender},
-    },
-    time::{Duration, Instant},
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 use tokio::{
     signal::unix::{SignalKind, signal},
@@ -33,77 +24,46 @@ use tokio::{
 };
 use uuid::Uuid;
 
-/// Process new file with stability checking using `data_access` abstraction.
-pub async fn process_new_file(
+/// Process a downloaded thumbnail and write the AI description back to the asset.
+pub async fn process_new_asset(
     ctx: &ProcessingContext<'_>,
     thumbnail_path: &Path,
-    file_write_timeout: u64,
-    file_check_interval: u64,
+    asset_id: Uuid,
 ) -> Result<(), ImageAnalysisError> {
-    let data_access = ctx.data_access;
-
-    let filename = filename_from_path(thumbnail_path);
     println!(
         "{}",
-        rust_i18n::t!("monitor.file_detected", filename = filename)
+        rust_i18n::t!("monitor.asset_detected", asset_id = asset_id)
     );
-    let start_time = Instant::now();
-    let mut last_size = 0;
-    let mut stable_count = 0_u8;
-    let timeout_duration = Duration::from_secs(file_write_timeout);
-    let check_interval = Duration::from_millis(file_check_interval);
-    // Wait for file to be stable
-    while start_time.elapsed() < timeout_duration {
-        if let Ok(metadata) = tokio::fs::metadata(thumbnail_path).await {
-            let current_size = metadata.len();
-            if current_size == last_size && current_size > 0 {
-                stable_count = stable_count.saturating_add(1);
-                if stable_count >= 3 {
-                    break;
-                }
-            } else {
-                stable_count = 0;
-                last_size = current_size;
-            }
+
+    let existing_description = match check_overwrite_policy(
+        ctx.immich_api_provider,
+        &asset_id,
+        ctx.overwrite_policy,
+    )
+    .await
+    {
+        Ok(OverwriteDecision::Skip) => {
+            println!(
+                "{}",
+                rust_i18n::t!("monitor.asset_already_described", asset_id = asset_id)
+            );
+            return Ok(());
         }
-        tokio::time::sleep(check_interval).await;
-    }
-    if start_time.elapsed() >= timeout_duration {
-        return Err(ImageAnalysisError::FileWriteTimeout {
-            timeout: file_write_timeout,
-            filename: filename.clone(),
-        });
-    }
-    println!(
-        "{}",
-        rust_i18n::t!("monitor.file_stable", filename = filename)
-    );
-    let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
-
-    let existing_description =
-        match check_overwrite_policy(ctx.data_access, &asset_id, ctx.overwrite_policy).await {
-            Ok(OverwriteDecision::Skip) => {
-                println!(
-                    "{}",
-                    rust_i18n::t!("monitor.file_already_in_db", filename = filename)
-                );
-                return Ok(());
-            }
-            Ok(OverwriteDecision::SkipBlocked { reason }) => {
-                println!(
-                    "{}",
-                    rust_i18n::t!(
-                        "error.permanently_rejected",
-                        filename = filename,
-                        reason = reason
-                    )
-                );
-                return Ok(());
-            }
-            Ok(OverwriteDecision::AnalyzeFresh) => None,
-            Ok(OverwriteDecision::PreserveExisting(desc)) => Some(desc),
-            Err(err) => return Err(err),
-        };
+        Ok(OverwriteDecision::SkipBlocked { reason }) => {
+            println!(
+                "{}",
+                rust_i18n::t!(
+                    "error.permanently_rejected",
+                    asset_id = asset_id,
+                    reason = reason
+                )
+            );
+            return Ok(());
+        }
+        Ok(OverwriteDecision::AnalyzeFresh) => None,
+        Ok(OverwriteDecision::PreserveExisting(desc)) => Some(desc),
+        Err(err) => return Err(err),
+    };
 
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await
@@ -111,7 +71,7 @@ pub async fn process_new_file(
 
     let (analysis, rejected) = match ctx
         .host_manager
-        .analyze_image(thumbnail_path, &final_prompt)
+        .analyze_image(thumbnail_path, &final_prompt, asset_id)
         .await
     {
         Ok(analysis) => (analysis, false),
@@ -133,20 +93,20 @@ pub async fn process_new_file(
     if !rejected {
         println!(
             "{}",
-            rust_i18n::t!("monitor.processing_success", filename = filename)
+            rust_i18n::t!("monitor.processing_success", asset_id = asset_id)
         );
     }
 
     let final_description = build_final_description(
         &analysis,
-        data_access,
+        ctx.immich_api_provider,
         ctx.preserve_human,
         existing_description,
         ctx.disable_ai_wrapper,
     )
     .await?;
 
-    data_access
+    ctx.immich_api_provider
         .update_description(&analysis.asset_id, &final_description)
         .await?;
 
@@ -155,20 +115,20 @@ pub async fn process_new_file(
             "{}",
             rust_i18n::t!(
                 "error.permanently_rejected",
-                filename = filename,
+                asset_id = asset_id,
                 reason = analysis.description
             )
         );
     } else {
         println!(
             "{}",
-            rust_i18n::t!("monitor.database_updated", filename = filename)
+            rust_i18n::t!("monitor.description_updated", asset_id = asset_id)
         );
     }
 
     if rejected {
         Err(ImageAnalysisError::PermanentlyRejected {
-            filename,
+            asset_id,
             reason: analysis.description,
         })
     } else {
@@ -176,15 +136,9 @@ pub async fn process_new_file(
     }
 }
 
-/// Monitor for new files using `data_access` abstraction.
-///
-/// # Database mode
-/// Uses filesystem watcher on thumbs/ directory.
-///
-/// # `ImmichApi` mode
-/// Uses polling via `get_assets_to_process()` to detect new assets.
+/// Monitor for new assets by polling the Immich API.
 pub async fn monitor_folder(
-    data_access: DataAccess,
+    immich_api_provider: Arc<ImmichApiProvider>,
     prompt: &str,
     config: &MonitorConfig,
     host_manager: Arc<HostManager>,
@@ -214,102 +168,39 @@ pub async fn monitor_folder(
     });
 
     let bg_ctx = BackgroundCtx {
-        data_access: data_access.clone(),
+        immich_api_provider,
         prompt: prompt.to_owned(),
         host_manager,
+        processing_assets: Arc::new(Mutex::new(HashSet::<Uuid>::new())),
     };
 
-    match &data_access {
-        // ========== DATABASE MODE: filesystem monitoring ==========
-        DataAccess::Database { immich_root, .. } => {
-            let thumbs_dir = immich_root.join("thumbs");
-            if !thumbs_dir.exists() {
-                return Err(Box::new(ImageAnalysisError::InvalidImmichStructure {
-                    error: rust_i18n::t!(
-                        "error.thumbs_directory_not_found",
-                        path = thumbs_dir.display().to_string()
-                    )
-                    .to_string(),
-                }));
-            }
+    println!("{}", rust_i18n::t!("monitor.api_monitoring_started"));
+    println!("{}", rust_i18n::t!("monitor.stop_instructions"));
 
-            println!(
-                "{}",
-                rust_i18n::t!(
-                    "monitor.folder_monitoring_started",
-                    path = thumbs_dir.display().to_string()
+    let mut known_assets: HashSet<Uuid> = HashSet::with_capacity(1 << 16);
+    let mut poll_interval =
+        tokio::time::interval(Duration::from_secs(u64::from(config.api_poll_interval)));
+    poll_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    let mut is_first_poll = true;
+    let mut last_poll_time: Option<chrono::DateTime<chrono::Utc>> = None;
+
+    loop {
+        tokio::select! {
+            Some(()) = stop_rx.recv() => {
+                println!("{}", rust_i18n::t!("monitor.stopping_monitoring"));
+                return Ok(());
+            }
+            _ = poll_interval.tick() => {
+                mark_activity();
+                handle_api_poll(
+                    &mut known_assets,
+                    &mut is_first_poll,
+                    &mut last_poll_time,
+                    config,
+                    &bg_ctx,
                 )
-            );
-            println!("{}", rust_i18n::t!("monitor.stop_instructions"));
-
-            let (event_tx, event_rx): (
-                Sender<notify::Result<notify::Event>>,
-                Receiver<notify::Result<notify::Event>>,
-            ) = mpsc::channel();
-
-            let mut watcher = RecommendedWatcher::new(event_tx, Config::default())?;
-            watcher.watch(&thumbs_dir, RecursiveMode::Recursive)?;
-
-            let processing_files = Arc::new(Mutex::new(HashSet::<String>::new()));
-            let mut last_events: HashMap<String, Instant> = HashMap::new();
-            let mut interval = tokio::time::interval(Duration::from_millis(100));
-            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-            loop {
-                tokio::select! {
-                    Some(()) = stop_rx.recv() => {
-                        println!("{}", rust_i18n::t!("monitor.stopping_monitoring"));
-                        drop(watcher);
-                        return Ok(());
-                    }
-                    _ = interval.tick() => {
-                        mark_activity();
-                        handle_fs_events(
-                            &event_rx,
-                            &mut last_events,
-                            &processing_files,
-                            config,
-                            &bg_ctx,
-                        );
-                    }
-                }
-            }
-        }
-
-        // ========== IMMICH API MODE: polling-based monitoring ==========
-        DataAccess::ImmichApi { provider } => {
-            println!("{}", rust_i18n::t!("monitor.api_monitoring_started"));
-            println!("{}", rust_i18n::t!("monitor.stop_instructions"));
-
-            let processing_assets = Arc::new(Mutex::new(HashSet::<Uuid>::new()));
-            let mut known_assets: HashSet<Uuid> = HashSet::with_capacity(1 << 16);
-            let mut poll_interval =
-                tokio::time::interval(Duration::from_secs(u64::from(config.api_poll_interval)));
-            poll_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-            let mut is_first_poll = true;
-            let mut last_poll_time: Option<chrono::DateTime<chrono::Utc>> = None;
-
-            loop {
-                tokio::select! {
-                    Some(()) = stop_rx.recv() => {
-                        println!("{}", rust_i18n::t!("monitor.stopping_monitoring"));
-                        return Ok(());
-                    }
-                    _ = poll_interval.tick() => {
-                        mark_activity();
-                        handle_api_poll(
-                            provider,
-                            &mut known_assets,
-                            &processing_assets,
-                            &mut is_first_poll,
-                            &mut last_poll_time,
-                            config,
-                            &bg_ctx,
-                        )
-                        .await;
-                    }
-                }
+                .await;
             }
         }
     }
@@ -317,138 +208,21 @@ pub async fn monitor_folder(
 
 #[derive(Clone)]
 struct BackgroundCtx {
-    data_access: DataAccess,
+    immich_api_provider: Arc<ImmichApiProvider>,
     prompt: String,
     host_manager: Arc<HostManager>,
-}
-
-fn handle_fs_events(
-    event_rx: &Receiver<notify::Result<notify::Event>>,
-    last_events: &mut HashMap<String, Instant>,
-    processing_files: &Arc<Mutex<HashSet<String>>>,
-    config: &MonitorConfig,
-    bg_ctx: &BackgroundCtx,
-) {
-    while let Ok(event) = event_rx.try_recv() {
-        match event {
-            Ok(event_val) => {
-                if let EventKind::Create(_) | EventKind::Modify(ModifyKind::Data(_)) =
-                    event_val.kind
-                    && let Some(path_buf) = event_val.paths.first()
-                {
-                    let path = path_buf.as_path();
-                    if path.is_file()
-                        && let Some(filename_str) = path.file_name().and_then(|n| n.to_str())
-                    {
-                        let filename = filename_str.to_owned();
-                        if !is_thumbnail_filename(&filename, config.thumbnail_size) {
-                            continue;
-                        }
-
-                        let now = Instant::now();
-                        let cooldown_duration = Duration::from_secs(config.event_cooldown);
-                        if let Some(last_time) = last_events.get(&filename)
-                            && now.duration_since(*last_time) < cooldown_duration
-                        {
-                            println!(
-                                "{}",
-                                rust_i18n::t!(
-                                    "monitor.skipping_duplicate_event",
-                                    filename = filename,
-                                    cooldown = config.event_cooldown.to_string()
-                                )
-                            );
-                            continue;
-                        }
-                        last_events.insert(filename.clone(), now);
-
-                        {
-                            let files = processing_files
-                                .lock()
-                                .expect("Failed to lock processing files");
-                            if files.contains(&filename) {
-                                println!(
-                                    "{}",
-                                    rust_i18n::t!(
-                                        "monitor.file_already_processing",
-                                        filename = filename
-                                    )
-                                );
-                                continue;
-                            }
-                        }
-
-                        println!(
-                            "{}",
-                            rust_i18n::t!("monitor.file_queued", filename = filename)
-                        );
-                        {
-                            let mut files = processing_files
-                                .lock()
-                                .expect("Failed to lock processing files");
-                            files.insert(filename.clone());
-                        }
-
-                        let bg_ctx_clone = bg_ctx.clone();
-                        let path_clone = path.to_path_buf();
-                        let filename_clone = filename.clone();
-                        let processing_files_clone = Arc::clone(processing_files);
-                        let config_clone = config.clone();
-
-                        tokio::spawn(async move {
-                            rust_i18n::set_locale(&config_clone.lang);
-                            let ctx = ProcessingContext::new(
-                                &bg_ctx_clone.data_access,
-                                &bg_ctx_clone.prompt,
-                                &bg_ctx_clone.host_manager,
-                                config_clone.overwrite_policy,
-                                config_clone.enrich_prompt,
-                                config_clone.preserve_human,
-                                config_clone.disable_ai_wrapper,
-                            );
-                            let result = process_new_file(
-                                &ctx,
-                                &path_clone,
-                                config_clone.file_write_timeout,
-                                config_clone.file_check_interval,
-                            )
-                            .await;
-                            {
-                                let mut files = processing_files_clone
-                                    .lock()
-                                    .expect("Failed to lock processing files");
-                                files.remove(&filename_clone);
-                            }
-                            if let Err(err) = result
-                                && !err.is_silent_background_error()
-                            {
-                                error!(
-                                    "Background processing error for: {filename_clone}: {}",
-                                    err.user_message()
-                                );
-                            }
-                        });
-                    }
-                }
-            }
-            Err(err) => {
-                error!("Filesystem monitoring error: {err}");
-            }
-        }
-    }
+    processing_assets: Arc<Mutex<HashSet<Uuid>>>,
 }
 
 async fn handle_api_poll(
-    provider: &ImmichApiProvider,
     known_assets: &mut HashSet<Uuid>,
-    processing_assets: &Arc<Mutex<HashSet<Uuid>>>,
     is_first_poll: &mut bool,
     last_poll_time: &mut Option<chrono::DateTime<chrono::Utc>>,
     config: &MonitorConfig,
     bg_ctx: &BackgroundCtx,
 ) {
     let assets_result = if *is_first_poll {
-        provider.get_assets().await
+        bg_ctx.immich_api_provider.get_assets().await
     } else {
         #[expect(clippy::arithmetic_side_effects)]
         let buffer_secs = i64::from(config.api_poll_interval) * 2;
@@ -457,7 +231,10 @@ async fn handle_api_poll(
             .checked_sub_signed(chrono::Duration::seconds(buffer_secs))
             .unwrap_or_else(chrono::Utc::now);
         let since_iso = since_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        provider.get_assets_since_timestamp(&since_iso).await
+        bg_ctx
+            .immich_api_provider
+            .get_assets_since_timestamp(&since_iso)
+            .await
     };
 
     match assets_result {
@@ -478,7 +255,8 @@ async fn handle_api_poll(
                         continue;
                     }
                     {
-                        let processing = processing_assets
+                        let processing = bg_ctx
+                            .processing_assets
                             .lock()
                             .expect("Failed to lock processing assets");
                         if processing.contains(&asset.id) {
@@ -488,7 +266,8 @@ async fn handle_api_poll(
 
                     known_assets.insert(asset.id);
                     {
-                        let mut processing = processing_assets
+                        let mut processing = bg_ctx
+                            .processing_assets
                             .lock()
                             .expect("Failed to lock processing assets");
                         processing.insert(asset.id);
@@ -501,21 +280,21 @@ async fn handle_api_poll(
 
                     let bg_ctx_clone = bg_ctx.clone();
                     let asset_id = asset.id;
-                    let processing_assets_clone = Arc::clone(processing_assets);
                     let config_clone = config.clone();
 
                     tokio::spawn(async move {
                         rust_i18n::set_locale(&config_clone.lang);
 
                         let thumbnail_path = match bg_ctx_clone
-                            .data_access
+                            .immich_api_provider
                             .get_thumbnail_path(&asset_id, config_clone.thumbnail_size)
                             .await
                         {
                             Ok(path) => path,
                             Err(err) => {
                                 error!("Failed to get thumbnail for asset {asset_id}: {err}");
-                                processing_assets_clone
+                                bg_ctx_clone
+                                    .processing_assets
                                     .lock()
                                     .expect("Failed to lock processing assets")
                                     .remove(&asset_id);
@@ -524,7 +303,7 @@ async fn handle_api_poll(
                         };
 
                         let ctx = ProcessingContext::new(
-                            &bg_ctx_clone.data_access,
+                            &bg_ctx_clone.immich_api_provider,
                             &bg_ctx_clone.prompt,
                             &bg_ctx_clone.host_manager,
                             config_clone.overwrite_policy,
@@ -533,24 +312,15 @@ async fn handle_api_poll(
                             config_clone.disable_ai_wrapper,
                         );
 
-                        let result = process_new_file(
-                            &ctx,
-                            &thumbnail_path,
-                            config_clone.file_write_timeout,
-                            config_clone.file_check_interval,
-                        )
-                        .await;
+                        let result = process_new_asset(&ctx, &thumbnail_path, asset_id).await;
 
-                        if let Err(err) = bg_ctx_clone
-                            .data_access
-                            .cleanup_thumbnail(&thumbnail_path)
-                            .await
-                        {
+                        if let Err(err) = cleanup_thumbnail(&thumbnail_path).await {
                             warn!("Failed to cleanup thumbnail: {err}");
                         }
 
                         {
-                            let mut processing = processing_assets_clone
+                            let mut processing = bg_ctx_clone
+                                .processing_assets
                                 .lock()
                                 .expect("Failed to lock processing assets");
                             processing.remove(&asset_id);

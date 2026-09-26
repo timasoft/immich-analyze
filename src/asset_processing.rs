@@ -1,111 +1,54 @@
 use crate::{
-    args::ThumbnailSize,
     config::ProcessingContext,
-    data_access::DataAccess,
-    database::ImageAnalysisResult,
     error::ImageAnalysisError,
     health::mark_activity,
-    host_manager::HostManager,
-    immich_api::AssetRef,
+    host_manager::{HostManager, ImageAnalysisResult},
+    immich_api::{AssetRef, ImmichApiProvider},
     progress::SimpleProgress,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
         OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
-        extract_uuid_from_thumbnail_filename, filename_from_path, is_thumbnail_filename,
+        cleanup_thumbnail,
     },
 };
 use futures::stream::{self, StreamExt as _};
-use log::{error, warn};
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use log::warn;
+use std::{path::Path, sync::Arc};
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
-/// Get all thumbnail image files from Immich thumbs directory.
-///
-/// This function is used in database mode to scan the filesystem for thumbnail files.
-pub async fn get_immich_thumbnail_files(
-    immich_root: &Path,
-    thumbnail_size: ThumbnailSize,
-) -> Result<Vec<PathBuf>, ImageAnalysisError> {
-    let thumbs_dir = immich_root.join("thumbs");
-    if !thumbs_dir.exists() {
-        return Err(ImageAnalysisError::InvalidImmichStructure {
-            error: rust_i18n::t!(
-                "error.thumbs_directory_not_found",
-                path = thumbs_dir.display().to_string()
-            )
-            .to_string(),
-        });
-    }
-    if !thumbs_dir.is_dir() {
-        return Err(ImageAnalysisError::InvalidImmichStructure {
-            error: rust_i18n::t!(
-                "error.thumbs_path_not_directory",
-                path = thumbs_dir.display().to_string()
-            )
-            .to_string(),
-        });
-    }
-    let mut thumbnail_files = Vec::new();
-    let mut stack = vec![thumbs_dir];
-    while let Some(current_dir) = stack.pop() {
-        match tokio::fs::read_dir(&current_dir).await {
-            Ok(mut entries) => {
-                while let Ok(Some(entry)) = entries.next_entry().await {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        stack.push(path);
-                    } else if path.is_file()
-                        && let Some(filename) = path.file_name().and_then(|name| name.to_str())
-                        && is_thumbnail_filename(filename, thumbnail_size)
-                    {
-                        thumbnail_files.push(path);
-                    }
-                }
-            }
-            Err(err) => {
-                error!("Error reading directory {}: {}", current_dir.display(), err);
-            }
-        }
-    }
-    Ok(thumbnail_files)
-}
-
-async fn process_file_with_existing_check(
+async fn process_asset_with_existing_check(
     ctx: &ProcessingContext<'_>,
     path: &Path,
+    asset_id: Uuid,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
-    let filename = filename_from_path(path);
-    let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
-
-    match check_overwrite_policy(ctx.data_access, &asset_id, ctx.overwrite_policy).await? {
-        OverwriteDecision::Skip => Err(ImageAnalysisError::AlreadyProcessed { filename }),
+    match check_overwrite_policy(ctx.immich_api_provider, &asset_id, ctx.overwrite_policy).await? {
+        OverwriteDecision::Skip => Err(ImageAnalysisError::AlreadyProcessed { asset_id }),
         OverwriteDecision::SkipBlocked { reason } => {
-            Err(ImageAnalysisError::PermanentlyRejected { filename, reason })
+            Err(ImageAnalysisError::PermanentlyRejected { asset_id, reason })
         }
-        OverwriteDecision::AnalyzeFresh => process_file(ctx, path, None).await,
-        OverwriteDecision::PreserveExisting(desc) => process_file(ctx, path, Some(desc)).await,
+        OverwriteDecision::AnalyzeFresh => process_asset(ctx, path, asset_id, None).await,
+        OverwriteDecision::PreserveExisting(desc) => {
+            process_asset(ctx, path, asset_id, Some(desc)).await
+        }
     }
 }
 
-async fn process_file(
+async fn process_asset(
     ctx: &ProcessingContext<'_>,
     path: &Path,
+    asset_id: Uuid,
     existing_description: Option<String>,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
-    let data_access = ctx.data_access;
-
-    let filename = filename_from_path(path);
-
-    let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
-
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await
         .unwrap_or_else(|| ctx.prompt.to_owned());
 
-    let (analysis, rejected) = match ctx.host_manager.analyze_image(path, &final_prompt).await {
+    let (analysis, rejected) = match ctx
+        .host_manager
+        .analyze_image(path, &final_prompt, asset_id)
+        .await
+    {
         Ok(analysis) => (analysis, false),
         Err(ImageAnalysisError::ProviderRejected {
             status, message, ..
@@ -119,26 +62,26 @@ async fn process_file(
         Err(err) => return Err(err),
     };
 
-    if let Err(err) = data_access.cleanup_thumbnail(path).await {
+    if let Err(err) = cleanup_thumbnail(path).await {
         warn!("Failed to cleanup thumbnail: {err}");
     }
 
     let final_description = build_final_description(
         &analysis,
-        data_access,
+        ctx.immich_api_provider,
         ctx.preserve_human,
         existing_description,
         ctx.disable_ai_wrapper,
     )
     .await?;
 
-    data_access
+    ctx.immich_api_provider
         .update_description(&analysis.asset_id, &final_description)
         .await?;
 
     if rejected {
         return Err(ImageAnalysisError::PermanentlyRejected {
-            filename,
+            asset_id: analysis.asset_id,
             reason: analysis.description,
         });
     }
@@ -146,9 +89,9 @@ async fn process_file(
     Ok(analysis)
 }
 
-pub async fn process_files_concurrently(
+pub async fn process_assets_concurrently(
     assets: Vec<AssetRef>,
-    data_access: &DataAccess,
+    immich_api_provider: &ImmichApiProvider,
     args: &crate::args::Args,
     locale: &str,
     progress: Arc<Mutex<SimpleProgress>>,
@@ -165,33 +108,33 @@ pub async fn process_files_concurrently(
         async move {
             rust_i18n::set_locale(&lang);
             mark_activity();
-            let thumbnail_path = match data_access
+            let thumbnail_path = match immich_api_provider
+                .clone()
                 .get_thumbnail_path(&asset_id, args.thumbnail_size)
                 .await
             {
                 Ok(thumbnail_path) => thumbnail_path,
                 Err(err) => {
-                    let filename = asset_id.to_string();
+                    let failed_asset_id = asset_id.to_string();
                     progress_clone
                         .lock()
                         .await
                         .set_message_and_inc(&rust_i18n::t!(
                             "progress.error",
-                            filename = filename,
+                            asset_id = failed_asset_id,
                             error = err.user_message()
                         ));
 
-                    return (filename, Err(err));
+                    return (failed_asset_id, Err(err));
                 }
             };
-            let filename = filename_from_path(&thumbnail_path);
             progress_clone
                 .lock()
                 .await
-                .set_message(&rust_i18n::t!("progress.processing", filename = filename));
+                .set_message(&rust_i18n::t!("progress.processing", asset_id = asset_id));
 
             let ctx = ProcessingContext::new(
-                data_access,
+                immich_api_provider,
                 &prompt,
                 &host_manager_clone,
                 overwrite_policy,
@@ -200,11 +143,10 @@ pub async fn process_files_concurrently(
                 args.disable_ai_wrapper,
             );
 
-            let result = process_file_with_existing_check(&ctx, &thumbnail_path).await;
+            let result = process_asset_with_existing_check(&ctx, &thumbnail_path, asset_id).await;
             match &result {
                 Err(
                     ImageAnalysisError::AlreadyProcessed { .. }
-                    | ImageAnalysisError::InvalidUuid { .. }
                     | ImageAnalysisError::AssetNotFound { .. }
                     | ImageAnalysisError::PermanentlyRejected { .. },
                 ) => {
@@ -213,7 +155,7 @@ pub async fn process_files_concurrently(
                         .await
                         .set_message_and_dec_total(&rust_i18n::t!(
                             "progress.skipped",
-                            filename = filename
+                            asset_id = asset_id
                         ));
                 }
                 _ => {
@@ -222,11 +164,11 @@ pub async fn process_files_concurrently(
                         .await
                         .set_message_and_inc(&rust_i18n::t!(
                             "progress.finished",
-                            filename = filename
+                            asset_id = asset_id
                         ));
                 }
             }
-            (filename, result)
+            (asset_id.to_string(), result)
         }
     }))
     .buffer_unordered(args.max_concurrent)
@@ -245,20 +187,20 @@ pub fn display_results(
     let mut skipped = 0_u32;
     let mut blocked = 0_u32;
     let mut output_lines = Vec::new();
-    for (filename, result) in results {
+    for (asset_id, result) in results {
         match result {
             Ok(analysis) => {
                 successful = successful.saturating_add(1);
                 output_lines.push(format!(
                     "{} [{}] {}\n{}",
                     rust_i18n::t!("status.success"),
-                    filename,
+                    asset_id,
                     analysis.description,
                     "-".repeat(80)
                 ));
             }
             Err(err) => {
-                let (count_increment, line) = handle_error_result(filename, err);
+                let (count_increment, line) = handle_error_result(asset_id, err);
                 match count_increment {
                     "success" => successful = successful.saturating_add(1),
                     "failed" => failed = failed.saturating_add(1),
@@ -279,59 +221,39 @@ pub fn display_results(
     print_statistics(successful, failed, skipped, blocked);
 }
 
-fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static str, String) {
+fn handle_error_result(asset_id: &str, error: &ImageAnalysisError) -> (&'static str, String) {
     match error {
-        ImageAnalysisError::AlreadyProcessed { filename } => (
+        ImageAnalysisError::AlreadyProcessed { .. } => (
             "skipped",
             format!(
                 "{} [{}] {}\n{}",
                 rust_i18n::t!("status.skipped"),
-                filename,
-                rust_i18n::t!("main.file_already_in_database", filename = filename),
+                asset_id,
+                rust_i18n::t!("main.asset_already_described", asset_id = asset_id),
                 "-".repeat(80)
             ),
         ),
-        ImageAnalysisError::PermanentlyRejected { filename, reason } => (
+        ImageAnalysisError::PermanentlyRejected { reason, .. } => (
             "blocked",
             format!(
                 "{} [{}] {}\n{}",
                 rust_i18n::t!("status.blocked"),
-                filename,
+                asset_id,
                 rust_i18n::t!(
                     "error.permanently_rejected",
-                    filename = filename,
+                    asset_id = asset_id,
                     reason = reason
                 ),
                 "-".repeat(80)
             ),
         ),
-        ImageAnalysisError::InvalidUuid { filename } => (
+        ImageAnalysisError::AssetNotFound { .. } => (
             "skipped",
             format!(
                 "{} [{}] {}\n{}",
                 rust_i18n::t!("status.skipped"),
-                filename,
-                rust_i18n::t!("error.invalid_uuid_filename", filename = filename),
-                "-".repeat(80)
-            ),
-        ),
-        ImageAnalysisError::AssetNotFound { asset_id } => (
-            "skipped",
-            format!(
-                "{} [{}] {}\n{}",
-                rust_i18n::t!("status.skipped"),
-                filename,
-                rust_i18n::t!("database.asset_not_in_table", asset_id = asset_id),
-                "-".repeat(80)
-            ),
-        ),
-        ImageAnalysisError::InvalidImmichStructure { error } => (
-            "failed",
-            format!(
-                "{} [{}] {}\n{}",
-                rust_i18n::t!("status.error"),
-                filename,
-                rust_i18n::t!("error.invalid_immich_structure", error = error),
+                asset_id,
+                rust_i18n::t!("error.asset_not_found_in_library", asset_id = asset_id),
                 "-".repeat(80)
             ),
         ),
@@ -340,7 +262,7 @@ fn handle_error_result(filename: &str, error: &ImageAnalysisError) -> (&'static 
             format!(
                 "{} [{}] {}\n{}",
                 rust_i18n::t!("status.error"),
-                filename,
+                asset_id,
                 error.user_message(),
                 "-".repeat(80)
             ),
@@ -377,7 +299,7 @@ fn print_statistics(successful: u32, failed: u32, skipped: u32, blocked: u32) {
         "{}",
         rust_i18n::t!("main.total_processed", count = total.to_string())
     );
-    println!("{}", rust_i18n::t!("main.database_updates_complete"));
+    println!("{}", rust_i18n::t!("main.asset_descriptions_updated"));
     if failed > 0 {
         print_error_recommendations();
     }
@@ -389,13 +311,5 @@ fn print_error_recommendations() {
     println!("• {}", rust_i18n::t!("recommendation.check_file_sizes"));
     println!("• {}", rust_i18n::t!("recommendation.reduce_concurrency"));
     println!("• {}", rust_i18n::t!("recommendation.use_monitor_mode"));
-    println!(
-        "• {}",
-        rust_i18n::t!("recommendation.check_database_connection")
-    );
-    println!(
-        "• {}",
-        rust_i18n::t!("recommendation.check_immich_structure")
-    );
     println!("• {}", rust_i18n::t!("recommendation.check_ai_servers"));
 }

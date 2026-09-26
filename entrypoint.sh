@@ -4,31 +4,16 @@ set -e
 # Set log level for debugging
 export RUST_LOG="${RUST_LOG:-info}"
 
-# Validate required environment variables (DB or API mode)
-if [ "$IMMICH_ANALYZE_DATA_ACCESS_MODE" = "database" ]; then
-    if [ -z "$DB_USERNAME" ] || [ -z "$DB_PASSWORD" ] || [ -z "$DB_DATABASE_NAME" ]; then
-        echo "ERROR: IMMICH_ANALYZE_DATA_ACCESS_MODE=database requires DB_USERNAME, DB_PASSWORD, and DB_DATABASE_NAME"
-        exit 1
-    fi
-elif [ "$IMMICH_ANALYZE_DATA_ACCESS_MODE" = "immich-api" ]; then
-    if [ -z "$IMMICH_API_URL" ] || [ -z "$IMMICH_API_KEY" ]; then
-        echo "ERROR: IMMICH_ANALYZE_DATA_ACCESS_MODE=immich-api requires IMMICH_API_URL and IMMICH_API_KEY"
-        exit 1
-    fi
-elif [ -n "$DB_USERNAME" ] && [ -n "$DB_PASSWORD" ] && [ -n "$DB_DATABASE_NAME" ]; then
-    # Database mode
-    :
-elif [ -n "$IMMICH_API_URL" ] && [ -n "$IMMICH_API_KEY" ]; then
-    # API mode
-    :
-else
-    echo "ERROR: Either (IMMICH_API_URL + IMMICH_API_KEY) OR (DB_USERNAME + DB_PASSWORD + DB_DATABASE_NAME) must be set"
+# Validate required environment variables
+if [ -n "${IMMICH_ANALYZE_DATA_ACCESS_MODE:-}" ] && [ "${IMMICH_ANALYZE_DATA_ACCESS_MODE}" != "immich-api" ]; then
+    echo "ERROR: IMMICH_ANALYZE_DATA_ACCESS_MODE is outdated; remove it (Immich API mode is always used)"
     exit 1
 fi
 
-# Set default values for optional database connection variables
-DB_HOSTNAME="${DB_HOSTNAME:-database}"
-DB_PORT="${DB_PORT:-5432}"
+if [ -z "${IMMICH_API_URL:-}" ] || [ -z "${IMMICH_API_KEY:-}" ]; then
+    echo "ERROR: IMMICH_API_URL and IMMICH_API_KEY must be set"
+    exit 1
+fi
 
 # Build safe arguments array
 args=()
@@ -50,26 +35,6 @@ case "$MODE" in
         exit 1
         ;;
 esac
-
-# Validate explicit data access mode override
-if [ -n "$IMMICH_ANALYZE_DATA_ACCESS_MODE" ] &&
-   [ "$IMMICH_ANALYZE_DATA_ACCESS_MODE" != "database" ] &&
-   [ "$IMMICH_ANALYZE_DATA_ACCESS_MODE" != "immich-api" ]; then
-    echo "ERROR: IMMICH_ANALYZE_DATA_ACCESS_MODE must be 'database' or 'immich-api' (got: $IMMICH_ANALYZE_DATA_ACCESS_MODE)"
-    exit 1
-fi
-
-# Add data access mode
-if [ "$IMMICH_ANALYZE_DATA_ACCESS_MODE" = "database" ] ||
-   { [ -z "$IMMICH_ANALYZE_DATA_ACCESS_MODE" ] &&
-     [ -n "$DB_USERNAME" ] && [ -n "$DB_PASSWORD" ] && [ -n "$DB_DATABASE_NAME" ]; }; then
-    args+=("--data-access-mode" "database")
-    args+=("--postgres-url" "postgresql://$DB_USERNAME:$DB_PASSWORD@$DB_HOSTNAME:$DB_PORT/$DB_DATABASE_NAME")
-    args+=("--immich-root" "/data")
-else
-    args+=("--data-access-mode" "immich-api")
-    # immich_api_url/immich_api_key are read from env by clap - no need to pass explicitly
-fi
 
 # Add optional configuration safely
 if [ -n "$IMMICH_ANALYZE_INTERFACE" ]; then

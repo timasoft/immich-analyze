@@ -1,15 +1,12 @@
 #![warn(non_ascii_idents)]
 
 use clap::Parser as _;
-use std::{num::NonZeroU32, path::Path, sync::Arc, time::Duration};
-use tokio_postgres::NoTls;
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 mod args;
+mod asset_processing;
 mod config;
-mod data_access;
-mod database;
 mod error;
-mod file_processing;
 mod health;
 mod host_manager;
 mod immich_api;
@@ -19,16 +16,16 @@ mod prompt_enricher;
 mod utils;
 
 use args::{Args, OverwritePolicy};
+use asset_processing::process_assets_concurrently;
 use config::MonitorConfig;
-use data_access::{DataAccess, DataAccessMode};
-use file_processing::process_files_concurrently;
 use host_manager::HostManager;
 use monitor::monitor_folder;
 use progress::SimpleProgress;
 use utils::{
     default_headers, determine_locale, format_error_chain, get_system_locale, validate_args,
-    validate_immich_directory,
 };
+
+use crate::immich_api::ImmichApiProvider;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -57,73 +54,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Create data access based on mode
-    let data_access = match args.data_access_mode {
-        DataAccessMode::Database => {
-            let (pg_client, connection) =
-                tokio_postgres::connect(&args.postgres_url, NoTls).await?;
-            tokio::spawn(async move {
-                if let Err(err) = connection.await {
-                    eprintln!(
-                        "{}",
-                        rust_i18n::t!(
-                            "error.postgres_connection_error",
-                            error = format_error_chain(&err)
-                        )
-                    );
-                }
-            });
-            let pg_client_arc = Arc::new(pg_client);
+    let immich_api_provider = {
+        let api_url = args
+            .immich_api_url
+            .as_ref()
+            .ok_or("IMMICH_API_URL required. Set via --immich-api-url or IMMICH_API_URL env var")?;
+        if args.immich_api_keys.is_empty() {
+            return Err("IMMICH_API_KEY required. Set via --immich-api-keys or IMMICH_API_KEY env var (comma-separated for multiple keys)".into());
+        }
+        let provider = immich_api::ImmichApiProvider::new(api_url, &args.immich_api_keys)?;
+        if !args.no_wait_for_immich {
+            let timeout_display = if args.wait_timeout == 0 {
+                "∞".to_owned()
+            } else {
+                args.wait_timeout.to_string()
+            };
             println!(
                 "{}",
-                rust_i18n::t!("main.postgres_connected", url = args.postgres_url)
+                rust_i18n::t!("main.waiting_for_immich", timeout = timeout_display)
             );
-            if let Err(err) = database::check_database_connection(&pg_client_arc).await {
-                eprintln!(
-                    "{}",
-                    rust_i18n::t!(
-                        "error.database_connection_failed",
-                        error = format_error_chain(&err)
-                    )
-                );
-                std::process::exit(1);
-            }
-            let immich_root = Path::new(&args.immich_root);
-            validate_immich_directory(immich_root)?;
-            DataAccess::new_database(pg_client_arc, immich_root.to_path_buf())
+            provider
+                .wait_until_ready(args.wait_timeout, args.wait_retry_interval)
+                .await?;
+            println!("{}", rust_i18n::t!("main.immich_ready"));
         }
-        DataAccessMode::ImmichApi => {
-            let api_url = args.immich_api_url.as_ref().ok_or(
-                "IMMICH_API_URL required for API mode. Set via --immich-api-url or IMMICH_API_URL env var"
-            )?;
-            if args.immich_api_keys.is_empty() {
-                return Err("IMMICH_API_KEY required for API mode. Set via --immich-api-keys or IMMICH_API_KEY env var (comma-separated for multiple keys)".into());
-            }
-            let provider = immich_api::ImmichApiProvider::new(api_url, &args.immich_api_keys)?;
-            if !args.no_wait_for_immich {
-                let timeout_display = if args.wait_timeout == 0 {
-                    "∞".to_owned()
-                } else {
-                    args.wait_timeout.to_string()
-                };
-                println!(
-                    "{}",
-                    rust_i18n::t!("main.waiting_for_immich", timeout = timeout_display)
-                );
-                provider
-                    .wait_until_ready(args.wait_timeout, args.wait_retry_interval)
-                    .await?;
-                println!("{}", rust_i18n::t!("main.immich_ready"));
-            }
-            println!(
-                "{}",
-                rust_i18n::t!(
-                    "main.immich_api_connected",
-                    api_url = api_url,
-                    key_count = args.immich_api_keys.len().to_string()
-                )
-            );
-            DataAccess::new_api(Arc::new(provider))
-        }
+        println!(
+            "{}",
+            rust_i18n::t!(
+                "main.immich_api_connected",
+                api_url = api_url,
+                key_count = args.immich_api_keys.len().to_string()
+            )
+        );
+        Arc::new(provider)
     };
 
     let http_client = reqwest::Client::builder()
@@ -159,11 +122,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if args.combined {
-        run_combined_mode(args.clone(), &data_access, &final_locale, host_manager).await?;
+        run_combined_mode(
+            args.clone(),
+            immich_api_provider,
+            &final_locale,
+            host_manager,
+        )
+        .await?;
     } else if args.monitor {
-        run_monitor_mode(&args, &data_access, &final_locale, host_manager).await?;
+        run_monitor_mode(&args, immich_api_provider, &final_locale, host_manager).await?;
     } else {
-        run_batch_mode(&args, &data_access, &final_locale, host_manager).await?;
+        run_batch_mode(&args, &immich_api_provider, &final_locale, host_manager).await?;
     }
 
     Ok(())
@@ -171,21 +140,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_combined_mode(
     args: Args,
-    data_access: &DataAccess,
+    immich_api_provider: Arc<ImmichApiProvider>,
     locale: &str,
     host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", rust_i18n::t!("main.combined_mode_activated"));
     let batch_handle = {
         let args_clone = args.clone();
-        let data_access_clone = data_access.clone();
+        let immich_api_provider_clone = Arc::clone(&immich_api_provider);
         let locale_clone = locale.to_owned();
         let host_manager_clone = Arc::clone(&host_manager);
         tokio::spawn(async move {
             println!("{}", rust_i18n::t!("main.processing_existing_images"));
             if let Err(err) = run_batch_mode(
                 &args_clone,
-                &data_access_clone,
+                &immich_api_provider_clone,
                 &locale_clone,
                 host_manager_clone,
             )
@@ -206,14 +175,14 @@ async fn run_combined_mode(
         "{}",
         rust_i18n::t!("main.monitor_mode_started_in_background")
     );
-    run_monitor_mode(&args, data_access, locale, host_manager).await?;
+    run_monitor_mode(&args, immich_api_provider, locale, host_manager).await?;
     let _: Result<(), tokio::task::JoinError> = batch_handle.await;
     Ok(())
 }
 
 async fn run_monitor_mode(
     args: &Args,
-    data_access: &DataAccess,
+    immich_api_provider: Arc<ImmichApiProvider>,
     locale: &str,
     host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -226,7 +195,7 @@ async fn run_monitor_mode(
     }
     let monitor_config = MonitorConfig::from_args(args, locale);
     monitor_folder(
-        data_access.clone(),
+        immich_api_provider,
         &args.prompt,
         &monitor_config,
         host_manager,
@@ -237,18 +206,11 @@ async fn run_monitor_mode(
 
 async fn run_batch_mode(
     args: &Args,
-    data_access: &DataAccess,
+    immich_api_provider: &ImmichApiProvider,
     locale: &str,
     host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        "{}",
-        rust_i18n::t!("main.database_connected", path = "Immich data source")
-    );
-
-    let assets = data_access
-        .get_assets_to_process(args.thumbnail_size)
-        .await?;
+    let assets = immich_api_provider.get_assets().await?;
 
     println!(
         "{}",
@@ -281,11 +243,18 @@ async fn run_batch_mode(
         &rust_i18n::t!("progress.processing_complete"),
     )));
 
-    let results =
-        process_files_concurrently(assets, data_access, args, locale, progress, host_manager).await;
+    let results = process_assets_concurrently(
+        assets,
+        immich_api_provider,
+        args,
+        locale,
+        progress,
+        host_manager,
+    )
+    .await;
 
     if !args.no_final_output {
-        file_processing::display_results(&results, args.max_concurrent > 1);
+        asset_processing::display_results(&results, args.max_concurrent > 1);
     }
     Ok(())
 }

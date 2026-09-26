@@ -1,8 +1,8 @@
 use crate::{
-    args::{Interface, OverwritePolicy, ThumbnailSize},
-    data_access::DataAccess,
-    database::ImageAnalysisResult,
+    args::{Interface, OverwritePolicy},
     error::ImageAnalysisError,
+    host_manager::ImageAnalysisResult,
+    immich_api::ImmichApiProvider,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use log::{debug, warn};
@@ -11,7 +11,7 @@ use reqwest::{
     StatusCode,
     header::{HeaderMap, HeaderValue, USER_AGENT},
 };
-use std::{borrow::Cow, error::Error, io::Cursor, path::Path, str::FromStr as _, sync::OnceLock};
+use std::{borrow::Cow, error::Error, io::Cursor, path::Path, sync::OnceLock};
 use strsim::levenshtein;
 use tokio::io::AsyncReadExt as _;
 use uuid::Uuid;
@@ -86,10 +86,6 @@ pub fn get_system_locale() -> String {
         )
 }
 
-static THUMBNAIL_PATTERN: OnceLock<Regex> = OnceLock::new();
-
-static UUID_PATTERN: OnceLock<Regex> = OnceLock::new();
-
 static AI_BLOCK_PATTERN: OnceLock<Regex> = OnceLock::new();
 
 pub fn get_ai_block_pattern() -> &'static Regex {
@@ -97,73 +93,23 @@ pub fn get_ai_block_pattern() -> &'static Regex {
         .get_or_init(|| Regex::new(r"(?s)\[AI\].*?\[/AI\]").expect("Invalid AI block regex"))
 }
 
-pub fn extract_uuid_from_thumbnail_filename(filename: &str) -> Result<Uuid, ImageAnalysisError> {
-    let thumbnail_pattern = THUMBNAIL_PATTERN.get_or_init(|| {
-        Regex::new(
-            "([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[-_](preview|thumbnail)",
-        )
-        .expect("Invalid thumbnail filename regex")
-    });
-    let uuid_pattern = UUID_PATTERN.get_or_init(|| {
-        Regex::new("([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
-            .expect("Invalid uuid regex")
-    });
-    if let Some(captures) = thumbnail_pattern.captures(filename)
-        && let Some(uuid_str) = captures.get(1)
-    {
-        return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
-            filename: filename.to_owned(),
-        });
-    }
-    if let Some(captures) = uuid_pattern.captures(filename)
-        && let Some(uuid_str) = captures.get(1)
-    {
-        return Uuid::from_str(uuid_str.as_str()).map_err(|_| ImageAnalysisError::InvalidUuid {
-            filename: filename.to_owned(),
-        });
-    }
-    Err(ImageAnalysisError::InvalidUuid {
-        filename: filename.to_owned(),
-    })
-}
-
-pub fn is_thumbnail_filename(filename: &str, thumbnail_size: ThumbnailSize) -> bool {
-    match thumbnail_size {
-        ThumbnailSize::Preview => filename.contains("_preview.") || filename.contains("-preview."),
-        ThumbnailSize::Thumbnail => {
-            filename.contains("_thumbnail.") || filename.contains("-thumbnail.")
-        }
-    }
-}
-
-/// Extract filename from a path, falling back to "unknown".
-#[must_use]
-pub fn filename_from_path(path: &Path) -> String {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_owned()
-}
-
 pub async fn read_image_as_png_base64(
     image_path: &Path,
-    filename: &str,
+    asset_id: Uuid,
     max_image_size: u32,
 ) -> Result<String, ImageAnalysisError> {
     let metadata = tokio::fs::metadata(image_path).await.map_err(|err| {
         ImageAnalysisError::ProcessingError {
-            filename: filename.to_owned(),
+            asset_id,
             error: format_error_chain(&err),
         }
     })?;
     if metadata.len() == 0 {
-        return Err(ImageAnalysisError::EmptyFile {
-            filename: filename.to_owned(),
-        });
+        return Err(ImageAnalysisError::EmptyFile { asset_id });
     }
     let mut image_file = tokio::fs::File::open(image_path).await.map_err(|err| {
         ImageAnalysisError::ProcessingError {
-            filename: filename.to_owned(),
+            asset_id,
             error: format_error_chain(&err),
         }
     })?;
@@ -172,12 +118,12 @@ pub async fn read_image_as_png_base64(
         .read_to_end(&mut image_data)
         .await
         .map_err(|err| ImageAnalysisError::ProcessingError {
-            filename: filename.to_owned(),
+            asset_id,
             error: format_error_chain(&err),
         })?;
     let image = image::load_from_memory(&image_data).map_err(|err| {
         ImageAnalysisError::ProcessingError {
-            filename: filename.to_owned(),
+            asset_id,
             error: format_error_chain(&err),
         }
     })?;
@@ -189,7 +135,7 @@ pub async fn read_image_as_png_base64(
             image::imageops::FilterType::Lanczos3,
         );
         debug!(
-            "Downscaling {filename} from {}x{} to {}x{}",
+            "Downscaling {asset_id} from {}x{} to {}x{}",
             image.width(),
             image.height(),
             resized.width(),
@@ -202,7 +148,7 @@ pub async fn read_image_as_png_base64(
     output_image
         .write_to(&mut png_data, image::ImageFormat::Png)
         .map_err(|err| ImageAnalysisError::ProcessingError {
-            filename: filename.to_owned(),
+            asset_id,
             error: format_error_chain(&err),
         })?;
     Ok(STANDARD.encode(png_data.into_inner()))
@@ -210,11 +156,11 @@ pub async fn read_image_as_png_base64(
 
 /// Check overwrite policy and return decision on how to handle the asset.
 pub async fn check_overwrite_policy(
-    data_access: &DataAccess,
+    immich_api_provider: &ImmichApiProvider,
     asset_id: &Uuid,
     overwrite_policy: OverwritePolicy,
 ) -> Result<OverwriteDecision, ImageAnalysisError> {
-    if !data_access.asset_exists(asset_id).await? {
+    if !immich_api_provider.asset_exists(asset_id).await? {
         return Err(ImageAnalysisError::AssetNotFound {
             asset_id: *asset_id,
         });
@@ -222,8 +168,8 @@ pub async fn check_overwrite_policy(
     match overwrite_policy {
         OverwritePolicy::All => Ok(OverwriteDecision::AnalyzeFresh),
         OverwritePolicy::None => {
-            if data_access.has_description(asset_id).await? {
-                if let Some(desc) = data_access.get_description(asset_id).await?
+            if immich_api_provider.has_description(asset_id).await? {
+                if let Some(desc) = immich_api_provider.get_description(asset_id).await?
                     && let Some(reason) = extract_blocked_reason(&desc)
                 {
                     return Ok(OverwriteDecision::SkipBlocked { reason });
@@ -232,7 +178,7 @@ pub async fn check_overwrite_policy(
             }
             Ok(OverwriteDecision::AnalyzeFresh)
         }
-        OverwritePolicy::MissingAi => match data_access.get_description(asset_id).await {
+        OverwritePolicy::MissingAi => match immich_api_provider.get_description(asset_id).await {
             Ok(Some(desc)) => {
                 if let Some(reason) = extract_blocked_reason(&desc) {
                     return Ok(OverwriteDecision::SkipBlocked { reason });
@@ -250,7 +196,7 @@ pub async fn check_overwrite_policy(
 
 pub async fn build_final_description(
     analysis: &ImageAnalysisResult,
-    data_access: &DataAccess,
+    immich_api_provider: &ImmichApiProvider,
     preserve_human: bool,
     existing_description: Option<String>,
     disable_ai_wrapper: bool,
@@ -267,7 +213,10 @@ pub async fn build_final_description(
 
     let existing = match existing_description {
         Some(desc) => desc,
-        None => match data_access.get_description(&analysis.asset_id).await {
+        None => match immich_api_provider
+            .get_description(&analysis.asset_id)
+            .await
+        {
             Ok(Some(desc)) => desc,
             Ok(None) => ai_wrapped.clone(),
             Err(err) => {
@@ -340,27 +289,6 @@ pub fn validate_args(args: &crate::args::Args) -> Result<(), Box<dyn Error>> {
         }
         Ok(())
     }
-}
-
-pub fn validate_immich_directory(path: &Path) -> Result<(), Box<dyn Error>> {
-    if !path.exists() {
-        return Err(format!(
-            "{}",
-            rust_i18n::t!(
-                "error.directory_not_found",
-                path = path.display().to_string()
-            )
-        )
-        .into());
-    }
-    if !path.is_dir() {
-        return Err(format!(
-            "{}",
-            rust_i18n::t!("error.not_a_directory", path = path.display().to_string())
-        )
-        .into());
-    }
-    Ok(())
 }
 
 /// Format the full error chain (including `source()`) so that serde field names
@@ -464,5 +392,16 @@ pub fn classify_provider_message(message: &str) -> ProviderMessageClass {
         ProviderMessageClass::Transient
     } else {
         ProviderMessageClass::Unknown
+    }
+}
+
+pub async fn cleanup_thumbnail(path: &Path) -> Result<(), ImageAnalysisError> {
+    match tokio::fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(ImageAnalysisError::IoError {
+            path: path.display().to_string(),
+            error: format_error_chain(&err),
+        }),
     }
 }

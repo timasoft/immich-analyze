@@ -262,7 +262,7 @@ pub async fn enrich_prompt_if_needed(
         return None;
     }
 
-    match ctx.data_access.get_asset_metadata(asset_id).await {
+    match ctx.immich_api_provider.get_asset_metadata(asset_id).await {
         Ok(metadata) => {
             let photo_date = metadata
                 .local_date_time
