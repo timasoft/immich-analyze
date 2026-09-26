@@ -4,30 +4,24 @@ use uuid::Uuid;
 
 #[derive(Debug, Error, Clone)]
 pub enum ImageAnalysisError {
-    #[error("Empty file: {filename}")]
-    EmptyFile { filename: String },
-    #[error("HTTP error {status} for {filename}: {response}")]
+    #[error("Empty file: {asset_id}")]
+    EmptyFile { asset_id: Uuid },
+    #[error("HTTP error {status} for {subject}: {response}")]
     HttpError {
         status: StatusCode,
-        filename: String,
+        subject: String,
         response: String,
     },
-    #[error("Empty response for {filename}")]
-    EmptyResponse { filename: String },
-    #[error("JSON parsing error for {filename}: {error}")]
-    JsonParsing { filename: String, error: String },
-    #[error("File write timeout {timeout}s for {filename}")]
-    FileWriteTimeout { timeout: u64, filename: String },
-    #[error("Processing error for {filename}: {error}")]
-    ProcessingError { filename: String, error: String },
-    #[error("Already processed: {filename}")]
-    AlreadyProcessed { filename: String },
-    #[error("Database error: {error}")]
-    DatabaseError { error: String },
-    #[error("Invalid UUID in filename: {filename}")]
-    InvalidUuid { filename: String },
-    #[error("Invalid Immich structure: {error}")]
-    InvalidImmichStructure { error: String },
+    #[error("Empty response for {asset_id}")]
+    EmptyResponse { asset_id: Uuid },
+    #[error("JSON parsing error for {subject}: {error}")]
+    JsonParsing { subject: String, error: String },
+    #[error("Processing error for {asset_id}: {error}")]
+    ProcessingError { asset_id: Uuid, error: String },
+    #[error("Already processed: {asset_id}")]
+    AlreadyProcessed { asset_id: Uuid },
+    #[error("Invalid asset ID: {asset_id}")]
+    InvalidUuid { asset_id: String },
     #[error("All AI service hosts are unavailable")]
     AllHostsUnavailable,
     #[error("AI service request timeout")]
@@ -38,7 +32,7 @@ pub enum ImageAnalysisError {
     InvalidConfig { error: String },
     #[error("HTTP client error: {error}")]
     HttpClientError {
-        filename: Option<String>,
+        asset_id: Option<Uuid>,
         error: String,
     },
     #[error("IO error for {path}: {error}")]
@@ -53,14 +47,14 @@ pub enum ImageAnalysisError {
         host: String,
         closest: Option<String>,
     },
-    #[error("AI service rejected the request (HTTP {status}) for {filename}: {message}")]
+    #[error("AI service rejected the request (HTTP {status}) for {asset_id}: {message}")]
     ProviderRejected {
         status: StatusCode,
-        filename: String,
+        asset_id: Uuid,
         message: String,
     },
-    #[error("Permanently rejected for {filename}: {reason}")]
-    PermanentlyRejected { filename: String, reason: String },
+    #[error("Permanently rejected for {asset_id}: {reason}")]
+    PermanentlyRejected { asset_id: Uuid, reason: String },
 }
 
 impl ImageAnalysisError {
@@ -68,67 +62,55 @@ impl ImageAnalysisError {
     #[must_use]
     pub fn user_message(&self) -> String {
         match self {
-            Self::EmptyFile { filename } => {
-                rust_i18n::t!("error.empty_file", filename = filename).to_string()
+            Self::EmptyFile { asset_id } => {
+                rust_i18n::t!("error.empty_file", asset_id = asset_id).to_string()
             }
             Self::HttpError {
                 status,
-                filename,
+                subject,
                 response,
             } => rust_i18n::t!(
                 "error.http_error_with_details",
-                filename = filename,
+                subject = subject,
                 status = status.to_string(),
                 response = response
             )
             .to_string(),
-            Self::EmptyResponse { filename } => {
-                rust_i18n::t!("error.empty_response", filename = filename).to_string()
+            Self::EmptyResponse { asset_id } => {
+                rust_i18n::t!("error.empty_response", asset_id = asset_id).to_string()
             }
-            Self::JsonParsing { filename, error } => rust_i18n::t!(
+            Self::JsonParsing { subject, error } => rust_i18n::t!(
                 "error.json_parsing_with_details",
-                filename = filename,
+                subject = subject,
                 error = error
             )
             .to_string(),
-            Self::FileWriteTimeout { filename, timeout } => rust_i18n::t!(
-                "error.file_write_timeout_with_details",
-                filename = filename,
-                timeout = timeout.to_string()
-            )
-            .to_string(),
-            Self::DatabaseError { error } => {
-                rust_i18n::t!("error.database_error", error = error).to_string()
-            }
             Self::AllHostsUnavailable => rust_i18n::t!("error.all_hosts_unavailable").to_string(),
             Self::AiRequestTimeout => rust_i18n::t!("error.ai_request_timeout").to_string(),
-            Self::ProcessingError { filename, error } => format!(
+            Self::ProcessingError { asset_id, error } => format!(
                 "{}\n{}",
                 error,
-                rust_i18n::t!("error.critical_processing_error", filename = filename),
+                rust_i18n::t!("error.critical_processing_error", asset_id = asset_id),
             ),
-            Self::AlreadyProcessed { filename } => {
-                rust_i18n::t!("main.file_already_in_database", filename = filename).to_string()
+            Self::AlreadyProcessed { asset_id } => {
+                rust_i18n::t!("main.asset_already_described", asset_id = asset_id).to_string()
             }
-            Self::InvalidUuid { filename } => format!(
+            Self::InvalidUuid { asset_id } => format!(
                 "{}\n{}",
-                rust_i18n::t!("error.critical_processing_error", filename = filename),
+                rust_i18n::t!("error.critical_processing_error", asset_id = asset_id),
                 self
             ),
-            Self::HttpClientError { filename, error } => filename.as_ref().map_or_else(
+            Self::HttpClientError { asset_id, error } => asset_id.as_ref().map_or_else(
                 || rust_i18n::t!("error.ai_host_connection_failed", error = error).to_string(),
-                |filename_str| {
+                |asset| {
                     rust_i18n::t!(
-                        "error.ai_host_connection_failed_for_file",
-                        filename = filename_str,
+                        "error.ai_host_connection_failed_for_asset",
+                        asset_id = asset,
                         error = error
                     )
                     .to_string()
                 },
             ),
-            Self::InvalidImmichStructure { error } => {
-                rust_i18n::t!("error.invalid_immich_structure", error = error).to_string()
-            }
             Self::InvalidConfig { error } => {
                 rust_i18n::t!("error.invalid_config", error = error).to_string()
             }
@@ -137,7 +119,7 @@ impl ImageAnalysisError {
                 rust_i18n::t!("error.io_error", path = path, error = error).to_string()
             }
             Self::AssetNotFound { asset_id } => {
-                rust_i18n::t!("database.asset_not_in_table", asset_id = asset_id).to_string()
+                rust_i18n::t!("error.asset_not_found_in_library", asset_id = asset_id).to_string()
             }
             Self::NoHostsConfigured => rust_i18n::t!("error.no_hosts_configured").to_string(),
             Self::ModelNotFound {
@@ -158,18 +140,18 @@ impl ImageAnalysisError {
             }
             Self::ProviderRejected {
                 status,
-                filename,
+                asset_id,
                 message,
             } => rust_i18n::t!(
                 "error.provider_rejected",
-                filename = filename,
+                asset_id = asset_id,
                 status = status.to_string(),
                 message = message
             )
             .to_string(),
-            Self::PermanentlyRejected { filename, reason } => rust_i18n::t!(
+            Self::PermanentlyRejected { asset_id, reason } => rust_i18n::t!(
                 "error.permanently_rejected",
-                filename = filename,
+                asset_id = asset_id,
                 reason = reason
             )
             .to_string(),
@@ -191,15 +173,12 @@ impl ImageAnalysisError {
             // Non-retryable errors
             Self::EmptyFile { .. }
             | Self::InvalidUuid { .. }
-            | Self::InvalidImmichStructure { .. }
             | Self::InvalidApiKey
             | Self::InvalidConfig { .. }
             | Self::EmptyResponse { .. }
             | Self::JsonParsing { .. }
             | Self::AlreadyProcessed { .. }
-            | Self::DatabaseError { .. }
             | Self::ProcessingError { .. }
-            | Self::FileWriteTimeout { .. }
             | Self::IoError { .. }
             | Self::AssetNotFound { .. }
             | Self::NoHostsConfigured
@@ -222,15 +201,12 @@ impl ImageAnalysisError {
             // Errors that are logged as background failures
             Self::EmptyFile { .. }
             | Self::InvalidUuid { .. }
-            | Self::InvalidImmichStructure { .. }
             | Self::InvalidApiKey
             | Self::InvalidConfig { .. }
             | Self::HttpError { .. }
             | Self::EmptyResponse { .. }
             | Self::JsonParsing { .. }
-            | Self::DatabaseError { .. }
             | Self::ProcessingError { .. }
-            | Self::FileWriteTimeout { .. }
             | Self::IoError { .. }
             | Self::AllHostsUnavailable
             | Self::AiRequestTimeout

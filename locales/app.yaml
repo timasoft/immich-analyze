@@ -49,29 +49,23 @@ main.error_recommendations:
   en: " Error recommendations"
   ru: " Рекомендации по ошибкам"
 main.ignore_existing_enabled:
-  en: " Ignore existing database entries mode enabled"
-  ru: " Включен режим игнорирования существующих записей в базе данных"
+  en: " Ignore existing asset descriptions mode enabled"
+  ru: " Включен режим игнорирования существующих описаний ассетов"
 main.missing_ai_enabled:
   en: " Processing assets without [AI] block (skipping those with AI descriptions)"
   ru: " Обработка ассетов без блока [AI] (пропускаем те, у которых есть AI-описание)"
-main.file_already_in_database:
-  en: " File %{filename} already has a description. Skipping."
-  ru: " Файл %{filename} уже имеет описание. Пропускаем."
+main.asset_already_described:
+  en: " Asset %{asset_id} already has a description. Skipping."
+  ru: " Ассет %{asset_id} уже имеет описание. Пропускаем."
 main.images_to_process:
   en: " Images to process: %{count}"
   ru: " Изображений для обработки: %{count}"
 main.combined_mode_activated:
   en: " Combined mode activated: processing existing images then monitoring for new ones"
   ru: " Активирован комбинированный режим: обработка существующих изображений, затем мониторинг новых"
-main.database_connected:
-  en: " Connected to: %{path}"
-  ru: " Подключено к: %{path}"
-main.database_updates_complete:
+main.asset_descriptions_updated:
   en: " All updates completed"
   ru: " Все обновления завершены"
-main.postgres_connected:
-  en: " Connected to PostgreSQL: %{url}"
-  ru: " Подключено к PostgreSQL: %{url}"
 main.immich_api_connected:
   en: " Connected to Immich API: %{api_url} (using %{key_count} API key(s))"
   ru: " Подключено к Immich API: %{api_url} (используется %{key_count} ключ(ей) API)"
@@ -87,17 +81,17 @@ main.monitor_mode_started_in_background:
 
 # Progress
 progress.processing:
-  en: " Processing: %{filename}"
-  ru: " Обрабатывается: %{filename}"
+  en: " Processing: %{asset_id}"
+  ru: " Обрабатывается: %{asset_id}"
 progress.skipped:
-  en: " Skipped: %{filename}"
-  ru: " Пропущено: %{filename}"
+  en: " Skipped: %{asset_id}"
+  ru: " Пропущено: %{asset_id}"
 progress.error:
-  en: " Error processing %{filename}: %{error}"
-  ru: " Ошибка обработки %{filename}: %{error}"
+  en: " Error processing %{asset_id}: %{error}"
+  ru: " Ошибка обработки %{asset_id}: %{error}"
 progress.finished:
-  en: " Finished processing: %{filename}"
-  ru: " Обработка завершена: %{filename}"
+  en: " Finished processing: %{asset_id}"
+  ru: " Обработка завершена: %{asset_id}"
 progress.processing_complete:
   en: " Processing completed"
   ru: " Обработка завершена"
@@ -127,22 +121,13 @@ recommendation.reduce_concurrency:
   en: " Try reducing max_concurrent if errors are related to overload"
   ru: " Попробуйте уменьшить max_concurrent если ошибки связаны с перегрузкой"
 recommendation.use_monitor_mode:
-  en: " For automatic processing of new files, run with -m parameter"
-  ru: " Для автоматической обработки новых файлов запустите с параметром -m"
-recommendation.check_database_connection:
-  en: " Check PostgreSQL connection and table permissions"
-  ru: " Проверьте подключение к PostgreSQL и права доступа к таблицам"
-recommendation.check_immich_structure:
-  en: " Check Immich library structure and file permissions"
-  ru: " Проверьте структуру библиотеки Immich и права доступа к файлам"
+  en: " For automatic processing of new assets, run with -m parameter"
+  ru: " Для автоматической обработки новых ассетов запустите с параметром -m"
 recommendation.check_ai_servers:
   en: " Check that all AI servers are accessible and responsive"
   ru: " Проверьте, что все ИИ серверы доступны и отвечают"
 
 # Monitoring mode
-monitor.folder_monitoring_started:
-  en: " Started monitoring folder: %{path}"
-  ru: " Начат мониторинг папки: %{path}"
 monitor.api_monitoring_started:
   en: " Started monitoring via Immich API"
   ru: " Начат мониторинг через Immich API"
@@ -155,33 +140,21 @@ monitor.stop_signal_received:
 monitor.stopping_monitoring:
   en: " Stopping monitoring..."
   ru: " Остановка мониторинга..."
-monitor.file_detected:
-  en: " New file detected: %{filename}"
-  ru: " Обнаружен новый файл: %{filename}"
+monitor.asset_detected:
+  en: " New asset detected: %{asset_id}"
+  ru: " Обнаружен новый ассет: %{asset_id}"
 monitor.api_asset_queued:
   en: " Queued for processing: %{asset_id}"
   ru: " Поставлен в очередь для обработки: %{asset_id}"
-monitor.file_stable:
-  en: " File %{filename} is stable and ready for processing"
-  ru: " Файл %{filename} стабилен и готов к обработке"
-monitor.file_already_in_db:
-  en: " File %{filename} already has a description. Skipping."
-  ru: " Файл %{filename} уже имеет описание. Пропускаем."
+monitor.asset_already_described:
+  en: " Asset %{asset_id} already has a description. Skipping."
+  ru: " Ассет %{asset_id} уже имеет описание. Пропускаем."
 monitor.processing_success:
-  en: " Successfully processed: %{filename}"
-  ru: " Успешно обработан: %{filename}"
-monitor.database_updated:
-  en: " Description updated for: %{filename}"
-  ru: " Описание обновлено для: %{filename}"
-monitor.file_already_processing:
-  en: " File %{filename} is already being processed"
-  ru: " Файл %{filename} уже в обработке"
-monitor.file_queued:
-  en: " Queued for processing: %{filename}"
-  ru: " Поставлен в очередь для обработки: %{filename}"
-monitor.skipping_duplicate_event:
-  en: " Skipping duplicate event for: %{filename} (cooldown %{cooldown}s)"
-  ru: " Пропускаем дублирующее событие для: %{filename} (cooldown %{cooldown}s)"
+  en: " Successfully processed: %{asset_id}"
+  ru: " Успешно обработан: %{asset_id}"
+monitor.description_updated:
+  en: " Description updated for: %{asset_id}"
+  ru: " Описание обновлено для: %{asset_id}"
 
 # Wait for Immich
 main.waiting_for_immich:
@@ -191,34 +164,10 @@ main.immich_ready:
   en: " Immich is ready"
   ru: " Immich готов"
 
-# Database messages
-database.error_checking_description:
-  en: " Error checking description: %{error}"
-  ru: " Ошибка проверки описания: %{error}"
-database.updating_asset:
-  en: " Executing update query for asset: %{asset_id}"
-  ru: " Выполняется запрос обновления для ассета: %{asset_id}"
-database.description_length:
-  en: " Description (length: %{length}): %{preview}"
-  ru: " Описание (длина: %{length}): %{preview}"
-database.sql_query_details:
-  en: " SQL Query details: %{query}"
-  ru: " Подробности SQL-запроса: %{query}"
-database.insert_success:
-  en: " Successfully created/updated description for asset: %{asset_id}"
-  ru: " Успешно создано/обновлено описание для ассета: %{asset_id}"
-database.insert_error:
-  en: " Insert error for asset %{asset_id}: %{error}"
-  ru: " Ошибка вставки для ассета %{asset_id}: %{error}"
-database.asset_existence_check_error:
-  en: " Error checking asset existence: %{error}"
-  ru: " Ошибка проверки существования ассета: %{error}"
-database.asset_not_in_table:
-  en: " Asset %{asset_id} does not exist in the asset table!"
-  ru: " Ассет %{asset_id} не существует в таблице asset!"
-database.connection_success:
-  en: " Database connection test passed"
-  ru: " Проверка подключения к базе данных пройдена"
+# Asset messages
+error.asset_not_found_in_library:
+  en: " Asset %{asset_id} does not exist in the Immich library"
+  ru: " Ассет %{asset_id} не существует в библиотеке Immich"
 
 # Host manager messages
 host_manager.host_marked_unavailable:
@@ -230,50 +179,20 @@ host_manager.host_marked_permanently_unavailable:
 
 # Error messages
 error.empty_file:
-  en: " Empty image file: %{filename}"
-  ru: " Пустой файл изображения: %{filename}"
+  en: " Empty file: %{asset_id}"
+  ru: " Пустой файл изображения: %{asset_id}"
 error.http_error_with_details:
-  en: " HTTP error %{status} for file %{filename}. Response: %{response}"
-  ru: " HTTP ошибка %{status} для файла %{filename}. Ответ: %{response}"
+  en: " HTTP error %{status} for %{subject}. Response: %{response}"
+  ru: " HTTP ошибка %{status} для %{subject}. Ответ: %{response}"
 error.empty_response:
-  en: " Model returned empty description for file %{filename}"
-  ru: " Модель вернула пустое описание для файла %{filename}"
+  en: " Model returned empty description for asset %{asset_id}"
+  ru: " Модель вернула пустое описание для ассета %{asset_id}"
 error.json_parsing_with_details:
-  en: " JSON parsing error for file %{filename}: %{error}"
-  ru: " Ошибка парсинга JSON для файла %{filename}: %{error}"
-error.file_write_timeout_with_details:
-  en: " File write timeout (%{timeout} seconds) for file %{filename}"
-  ru: " Таймаут ожидания полной записи файла (%{timeout} секунд) для файла %{filename}"
+  en: " JSON parsing error for %{subject}: %{error}"
+  ru: " Ошибка парсинга JSON для %{subject}: %{error}"
 error.critical_processing_error:
-  en: " Critical processing error for %{filename}"
-  ru: " Критическая ошибка обработки %{filename}"
-error.database_error:
-  en: " Database error: %{error}"
-  ru: " Ошибка базы данных: %{error}"
-error.database_connection_failed:
-  en: " Database connection failed: %{error}"
-  ru: " Не удалось подключиться к базе данных: %{error}"
-error.postgres_connection_error:
-  en: " PostgreSQL connection error: %{error}"
-  ru: " Ошибка подключения к PostgreSQL: %{error}"
-error.database_query_failed:
-  en: " Database query failed: %{error}"
-  ru: " Не удалось выполнить запрос к базе данных: %{error}"
-error.database_timeout:
-  en: " Database connection timeout"
-  ru: " Таймаут подключения к базе данных"
-error.thumbs_directory_not_found:
-  en: " Thumbs directory not found: %{path}"
-  ru: " Папка thumbs не найдена: %{path}"
-error.thumbs_path_not_directory:
-  en: " Thumbs path is not a directory: %{path}"
-  ru: " Путь к thumbs не является папкой: %{path}"
-error.invalid_immich_structure:
-  en: " Invalid Immich library structure: %{error}"
-  ru: " Неверная структура библиотеки Immich: %{error}"
-error.invalid_uuid_filename:
-  en: " Invalid UUID in filename: %{filename}"
-  ru: " Неверный UUID в имени файла: %{filename}"
+  en: " Critical processing error for %{asset_id}"
+  ru: " Критическая ошибка обработки %{asset_id}"
 error.incompatible_flags:
   en: " Incompatible command line flags detected"
   ru: " Обнаружены несовместимые флаги командной строки"
@@ -283,15 +202,6 @@ error.combined_monitor_conflict:
 error.use_combined_or_monitor:
   en: "  Choose either combined mode (-c) OR monitoring mode (-m), but not both"
   ru: "  Выберите либо комбинированный режим (-c), ЛИБО режим мониторинга (-m), но не оба сразу"
-error.directory_not_found:
-  en: " Directory not found: %{path}"
-  ru: " Папка не найдена: %{path}"
-error.not_a_directory:
-  en: " %{path} is not a directory"
-  ru: " %{path} не является папкой"
-error.query_failed_error:
-  en: " Query failed: %{error}"
-  ru: " Запрос не выполнен: %{error}"
 error.batch_mode_failed:
   en: " Batch mode failed: %{error}"
   ru: " Batch режим завершился с ошибкой: %{error}"
@@ -322,9 +232,9 @@ error.model_preflight_check_failed:
 error.ai_host_connection_failed:
   en: "Failed to connect to AI service host: %{error}"
   ru: "Не удалось подключиться к ИИ сервису: %{error}"
-error.ai_host_connection_failed_for_file:
-  en: "Failed to connect to AI service host for file %{filename}: %{error}"
-  ru: "Не удалось подключиться к ИИ сервису для файла %{filename}: %{error}"
+error.ai_host_connection_failed_for_asset:
+  en: "Failed to connect to AI service host for asset %{asset_id}: %{error}"
+  ru: "Не удалось подключиться к ИИ сервису для ассета %{asset_id}: %{error}"
 error.invalid_config:
   en: "Invalid configuration: %{error}"
   ru: "Некорректная конфигурация: %{error}"
@@ -332,8 +242,8 @@ error.invalid_api_key:
   en: "Invalid API key"
   ru: "Некорректный ключ API"
 error.provider_rejected:
-  en: "󰂭 AI provider rejected the request (HTTP %{status}) for file %{filename}: %{message}"
-  ru: "󰂭 ИИ-провайдер отклонил запрос (HTTP %{status}) для файла %{filename}: %{message}"
+  en: "󰂭 AI provider rejected the request (HTTP %{status}) for asset %{asset_id}: %{message}"
+  ru: "󰂭 ИИ-провайдер отклонил запрос (HTTP %{status}) для ассета %{asset_id}: %{message}"
 error.permanently_rejected:
-  en: "󰂭 File %{filename} was permanently rejected by the AI provider: %{reason}"
-  ru: "󰂭 Файл %{filename} был навсегда отклонен ИИ-провайдером: %{reason}"
+  en: "󰂭 Asset %{asset_id} was permanently rejected by the AI provider: %{reason}"
+  ru: "󰂭 Ассет %{asset_id} был навсегда отклонен ИИ-провайдером: %{reason}"

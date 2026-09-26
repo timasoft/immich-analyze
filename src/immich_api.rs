@@ -166,7 +166,7 @@ impl ImmichApiProvider {
                     .timeout(Duration::from_secs(30))
                     .build()
                     .map_err(|err| ImageAnalysisError::HttpClientError {
-                        filename: None,
+                        asset_id: None,
                         error: format_error_chain(&err),
                     })
             })
@@ -251,7 +251,7 @@ impl ImmichApiProvider {
                     timeout_secs.to_string()
                 };
                 return Err(ImageAnalysisError::HttpClientError {
-                    filename: None,
+                    asset_id: None,
                     error: format!(
                         "Timed out waiting for Immich after {timeout_display}s: {last_err}"
                     ),
@@ -340,7 +340,7 @@ impl ImmichApiProvider {
                     .send()
                     .await
                     .map_err(|err| ImageAnalysisError::HttpClientError {
-                        filename: None,
+                        asset_id: None,
                         error: format_error_chain(&err),
                     })?;
 
@@ -355,7 +355,7 @@ impl ImmichApiProvider {
                     };
                     return Err(ImageAnalysisError::HttpError {
                         status,
-                        filename: "assets_list".to_owned(),
+                        subject: "assets_list".to_owned(),
                         response: body,
                     });
                 }
@@ -365,7 +365,7 @@ impl ImmichApiProvider {
                         .json()
                         .await
                         .map_err(|err| ImageAnalysisError::JsonParsing {
-                            filename: "assets_list".to_owned(),
+                            subject: "assets_list".to_owned(),
                             error: format_error_chain(&err),
                         })?;
 
@@ -376,7 +376,7 @@ impl ImmichApiProvider {
                 for item in search_result.assets.items {
                     let asset_id =
                         Uuid::parse_str(&item.id).map_err(|_| ImageAnalysisError::InvalidUuid {
-                            filename: item.id.clone(),
+                            asset_id: item.id.clone(),
                         })?;
 
                     all_assets.push(AssetRef { id: asset_id });
@@ -430,7 +430,7 @@ impl ImmichApiProvider {
                         resp.bytes()
                             .await
                             .map_err(|err| ImageAnalysisError::HttpClientError {
-                                filename: Some(asset_id.to_string()),
+                                asset_id: Some(*asset_id),
                                 error: format_error_chain(&err),
                             })?;
 
@@ -438,7 +438,7 @@ impl ImmichApiProvider {
                         std::env::temp_dir().join(format!("{asset_id}_{thumbnail_size}.tmp"));
                     tokio::fs::write(&temp_path, &bytes).await.map_err(|err| {
                         ImageAnalysisError::ProcessingError {
-                            filename: asset_id.to_string(),
+                            asset_id: *asset_id,
                             error: format_error_chain(&err),
                         }
                     })?;
@@ -448,7 +448,7 @@ impl ImmichApiProvider {
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status(),
-                        filename: asset_id.to_string(),
+                        subject: asset_id.to_string(),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -460,7 +460,7 @@ impl ImmichApiProvider {
                 }
                 Err(err) => {
                     last_error = Some(ImageAnalysisError::HttpClientError {
-                        filename: Some(asset_id.to_string()),
+                        asset_id: Some(*asset_id),
                         error: format_error_chain(&err),
                     });
                 }
@@ -469,7 +469,7 @@ impl ImmichApiProvider {
 
         Err(
             last_error.unwrap_or_else(|| ImageAnalysisError::HttpClientError {
-                filename: Some(asset_id.to_string()),
+                asset_id: Some(*asset_id),
                 error: "No API keys available".to_owned(),
             }),
         )
@@ -512,7 +512,7 @@ impl ImmichApiProvider {
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status(),
-                        filename: asset_id.to_string(),
+                        subject: asset_id.to_string(),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -524,7 +524,7 @@ impl ImmichApiProvider {
                 }
                 Err(err) => {
                     last_error = Some(ImageAnalysisError::HttpClientError {
-                        filename: Some(asset_id.to_string()),
+                        asset_id: Some(*asset_id),
                         error: format_error_chain(&err),
                     });
                 }
@@ -533,7 +533,7 @@ impl ImmichApiProvider {
 
         Err(
             last_error.unwrap_or_else(|| ImageAnalysisError::HttpClientError {
-                filename: Some(asset_id.to_string()),
+                asset_id: Some(*asset_id),
                 error: "No API keys available".to_owned(),
             }),
         )
@@ -567,7 +567,7 @@ impl ImmichApiProvider {
                         resp.json()
                             .await
                             .map_err(|err| ImageAnalysisError::JsonParsing {
-                                filename: asset_id.to_string(),
+                                subject: asset_id.to_string(),
                                 error: format_error_chain(&err),
                             })?;
 
@@ -580,7 +580,7 @@ impl ImmichApiProvider {
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status(),
-                        filename: asset_id.to_string(),
+                        subject: asset_id.to_string(),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -592,7 +592,7 @@ impl ImmichApiProvider {
                 }
                 Err(err) => {
                     last_error = Some(ImageAnalysisError::HttpClientError {
-                        filename: Some(asset_id.to_string()),
+                        asset_id: Some(*asset_id),
                         error: format_error_chain(&err),
                     });
                 }
@@ -601,7 +601,7 @@ impl ImmichApiProvider {
 
         Err(
             last_error.unwrap_or_else(|| ImageAnalysisError::HttpClientError {
-                filename: Some(asset_id.to_string()),
+                asset_id: Some(*asset_id),
                 error: "No API keys available".to_owned(),
             }),
         )
@@ -681,7 +681,7 @@ impl ImmichApiProvider {
                         resp.json()
                             .await
                             .map_err(|err| ImageAnalysisError::JsonParsing {
-                                filename: asset_id.to_string(),
+                                subject: asset_id.to_string(),
                                 error: format_error_chain(&err),
                             })?;
 
@@ -690,7 +690,7 @@ impl ImmichApiProvider {
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {
                         status: resp.status(),
-                        filename: asset_id.to_string(),
+                        subject: asset_id.to_string(),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -702,7 +702,7 @@ impl ImmichApiProvider {
                 }
                 Err(err) => {
                     last_error = Some(ImageAnalysisError::HttpClientError {
-                        filename: Some(asset_id.to_string()),
+                        asset_id: Some(*asset_id),
                         error: format_error_chain(&err),
                     });
                 }
@@ -711,9 +711,31 @@ impl ImmichApiProvider {
 
         Err(
             last_error.unwrap_or_else(|| ImageAnalysisError::HttpClientError {
-                filename: Some(asset_id.to_string()),
+                asset_id: Some(*asset_id),
                 error: "No API keys available".to_owned(),
             }),
         )
+    }
+
+    /// Gets the existing description for an asset, if any.
+    ///
+    /// Fetches asset metadata and extracts the `exif_info.description` field.
+    ///
+    /// # Arguments
+    /// * `asset_id` - UUID of the target asset
+    ///
+    /// # Returns
+    /// `Some(description)` if a non-empty description exists, `None` otherwise.
+    pub async fn get_description(
+        &self,
+        asset_id: &Uuid,
+    ) -> Result<Option<String>, ImageAnalysisError> {
+        match self.get_asset_metadata(asset_id).await {
+            Ok(metadata) => Ok(metadata
+                .exif_info
+                .and_then(|exif| exif.description)
+                .filter(|desc| !desc.is_empty())),
+            Err(err) => Err(err),
+        }
     }
 }

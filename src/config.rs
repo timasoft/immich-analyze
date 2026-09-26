@@ -1,14 +1,11 @@
 use crate::{
     args::{Args, OverwritePolicy, ThumbnailSize},
-    data_access::DataAccess,
     host_manager::HostManager,
+    immich_api::ImmichApiProvider,
 };
 
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {
-    pub file_write_timeout: u64,
-    pub file_check_interval: u64,
-    pub event_cooldown: u64,
     pub lang: String,
     pub overwrite_policy: OverwritePolicy,
     pub api_poll_interval: u32,
@@ -22,9 +19,6 @@ impl MonitorConfig {
     #[must_use]
     pub fn from_args(args: &Args, lang: &str) -> Self {
         Self {
-            file_write_timeout: args.file_write_timeout,
-            file_check_interval: args.file_check_interval,
-            event_cooldown: args.event_cooldown,
             lang: lang.to_owned(),
             overwrite_policy: args.effective_overwrite_policy(),
             api_poll_interval: args.api_poll_interval,
@@ -36,9 +30,9 @@ impl MonitorConfig {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct ProcessingContext<'a> {
-    pub data_access: &'a DataAccess,
+    pub immich_api_provider: &'a ImmichApiProvider,
     pub prompt: &'a str,
     pub host_manager: &'a HostManager,
     pub overwrite_policy: OverwritePolicy,
@@ -50,7 +44,7 @@ pub struct ProcessingContext<'a> {
 impl<'a> ProcessingContext<'a> {
     #[must_use]
     pub const fn new(
-        data_access: &'a DataAccess,
+        immich_api_provider: &'a ImmichApiProvider,
         prompt: &'a str,
         host_manager: &'a HostManager,
         overwrite_policy: OverwritePolicy,
@@ -59,7 +53,7 @@ impl<'a> ProcessingContext<'a> {
         disable_ai_wrapper: bool,
     ) -> Self {
         Self {
-            data_access,
+            immich_api_provider,
             prompt,
             host_manager,
             overwrite_policy,

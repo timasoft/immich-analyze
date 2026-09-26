@@ -1,4 +1,3 @@
-use crate::data_access::DataAccessMode;
 use clap::{Parser, ValueEnum};
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -43,13 +42,13 @@ pub enum OverwritePolicy {
 #[command(author, version, about, long_about = None)]
 #[expect(clippy::struct_excessive_bools)]
 pub struct Args {
-    /// Enable folder monitoring mode
+    /// Enable API monitoring mode
     #[arg(short, long)]
     pub monitor: bool,
     /// Enable combined mode: process existing images then monitor for new ones
     #[arg(short, long)]
     pub combined: bool,
-    /// Overwrite existing entries in database (process all files regardless of existing descriptions) (same as --overwrite-policy all)
+    /// Overwrite existing asset descriptions (process all assets regardless of existing descriptions) (same as --overwrite-policy all)
     #[arg(short, long)]
     pub overwrite_existing: bool,
     /// Overwrite policy [default: none]:
@@ -62,22 +61,10 @@ pub struct Args {
     /// When overwriting or adding, preserve human-entered text by only replacing the [AI]...[/AI] block
     #[arg(short, long, conflicts_with = "disable_ai_wrapper")]
     pub preserve_human: bool,
-    /// Path to Immich root directory (containing upload/, thumbs/ folders)
-    #[arg(long, default_value = "/var/lib/immich")]
-    pub immich_root: String,
-    /// `PostgreSQL` connection string (used only in database mode)
-    #[arg(
-        long,
-        default_value = "host=localhost user=postgres dbname=immich password=your_password"
-    )]
-    pub postgres_url: String,
-    /// Data access mode: database (direct `PostgreSQL`) or api (Immich REST API)
-    #[arg(short, long, value_enum, default_value = "database")]
-    pub data_access_mode: DataAccessMode,
-    /// Immich API base URL (required when using api access mode)
+    /// Immich API base URL (required)
     #[arg(long, env = "IMMICH_API_URL")]
     pub immich_api_url: Option<String>,
-    /// Immich API authentication key(s) (required when using api access mode).
+    /// Immich API authentication key(s) (required).
     /// Provide multiple keys comma-separated for multi-user setups.
     #[arg(
         long,
@@ -86,7 +73,7 @@ pub struct Args {
         hide_env_values = true
     )]
     pub immich_api_keys: Vec<String>,
-    /// API poll interval in seconds (for Immich API mode)
+    /// API poll interval in seconds
     #[arg(long, default_value_t = 10)]
     pub api_poll_interval: u32,
     /// Which Immich thumbnail rendition to analyze: preview (higher
@@ -128,15 +115,6 @@ pub struct Args {
     /// HTTP request timeout in seconds
     #[arg(long, default_value_t = 300)]
     pub timeout: u64,
-    /// File write timeout in seconds
-    #[arg(long, default_value_t = 30)]
-    pub file_write_timeout: u64,
-    /// File stability check interval in milliseconds
-    #[arg(long, default_value_t = 500)]
-    pub file_check_interval: u64,
-    /// Minimum time between processing identical events in seconds
-    #[arg(long, default_value_t = 2)]
-    pub event_cooldown: u64,
     /// Prompt for generating image description
     #[arg(
         long,
@@ -166,7 +144,7 @@ pub struct Args {
     /// Disable final output with analysis results and statistics after batch processing
     #[arg(long, default_value_t = false)]
     pub no_final_output: bool,
-    /// Disable waiting for Immich to become available on startup (API mode only)
+    /// Disable waiting for Immich to become available on startup
     #[arg(long, default_value_t = false)]
     pub no_wait_for_immich: bool,
     /// Maximum time in seconds to wait for Immich to become available (0 = no limit)

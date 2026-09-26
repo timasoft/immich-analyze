@@ -2,8 +2,7 @@ use crate::{
     args::Interface,
     error::ImageAnalysisError,
     utils::{
-        ProviderMessageClass, classify_provider_message, closest_name,
-        extract_uuid_from_thumbnail_filename, filename_from_path, format_error_chain,
+        ProviderMessageClass, classify_provider_message, closest_name, format_error_chain,
         is_model_served, read_image_as_png_base64,
     },
 };
@@ -17,6 +16,13 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use uuid::Uuid;
+
+#[derive(Debug)]
+pub struct ImageAnalysisResult {
+    pub description: String,
+    pub asset_id: Uuid,
+}
 
 impl Interface {
     /// Returns the API endpoint path for the given interface.
@@ -348,18 +354,16 @@ impl HostManager {
         &self,
         image_path: &Path,
         prompt: &str,
-    ) -> Result<crate::database::ImageAnalysisResult, ImageAnalysisError> {
-        let filename = filename_from_path(image_path);
-
+        asset_id: Uuid,
+    ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
         info!(
-            "Starting {:?} analysis for image: {}",
-            self.interface, filename
+            "Starting {:?} analysis for asset: {asset_id}",
+            self.interface
         );
         debug!("Model: {}, Timeout: {}s", self.model_name, self.timeout);
 
-        let asset_id = extract_uuid_from_thumbnail_filename(&filename)?;
         let base64_image =
-            read_image_as_png_base64(image_path, &filename, self.max_image_size).await?;
+            read_image_as_png_base64(image_path, asset_id, self.max_image_size).await?;
 
         let request_body =
             self.interface
@@ -378,7 +382,7 @@ impl HostManager {
                     attempt,
                     self.max_retries
                         .map_or_else(|| "∞".to_owned(), |max| max.to_string()),
-                    filename
+                    asset_id
                 );
             }
 
@@ -438,7 +442,7 @@ impl HostManager {
                             let response_text = response.text().await.map_err(|err| {
                                 error!("Failed to read response body: {err}");
                                 ImageAnalysisError::ProcessingError {
-                                    filename: filename.clone(),
+                                    asset_id,
                                     error: format_error_chain(&err),
                                 }
                             })?;
@@ -452,11 +456,11 @@ impl HostManager {
                                     {
                                         error!(
                                             "{:?} provider rejected request for {}: {}",
-                                            self.interface, filename, provider_message
+                                            self.interface, asset_id, provider_message
                                         );
                                         return Err(ImageAnalysisError::ProviderRejected {
                                             status,
-                                            filename: filename.clone(),
+                                            asset_id,
                                             message: provider_message,
                                         });
                                     }
@@ -465,38 +469,38 @@ impl HostManager {
                                     if let Some(raw_description) = content {
                                         let description = raw_description.trim().to_owned();
                                         if description.is_empty() {
-                                            warn!("Empty response for image: {filename}");
+                                            warn!("Empty response for image: {asset_id}");
                                             last_error = Some(ImageAnalysisError::EmptyResponse {
-                                                filename: filename.clone(),
+                                                asset_id,
                                             });
                                         } else {
                                             info!(
                                                 "{:?} analysis successful for {}, description length: {}",
                                                 self.interface,
-                                                filename,
+                                                asset_id,
                                                 description.len()
                                             );
-                                            return Ok(crate::database::ImageAnalysisResult {
+                                            return Ok(ImageAnalysisResult {
                                                 description,
                                                 asset_id,
                                             });
                                         }
                                     } else {
                                         error!(
-                                            "Failed to extract content from response for {filename}"
+                                            "Failed to extract content from response for {asset_id}"
                                         );
                                         last_error = Some(ImageAnalysisError::JsonParsing {
-                                            filename: filename.clone(),
+                                            subject: asset_id.to_string(),
                                             error: "No content field found in response".to_owned(),
                                         });
                                     }
                                 }
                                 Err(parse_error) => {
                                     error!(
-                                        "Failed to parse response as JSON for {filename}: {parse_error}"
+                                        "Failed to parse response as JSON for {asset_id}: {parse_error}"
                                     );
                                     let error = ImageAnalysisError::JsonParsing {
-                                        filename: filename.clone(),
+                                        subject: asset_id.to_string(),
                                         error: format_error_chain(&parse_error),
                                     };
                                     if !error.is_retryable() {
@@ -509,7 +513,7 @@ impl HostManager {
                             let response_text = response.text().await.unwrap_or_default();
                             error!(
                                 "{:?} HTTP error {} for {}: {}",
-                                self.interface, status, filename, response_text
+                                self.interface, status, asset_id, response_text
                             );
                             let error = if matches!(
                                 status,
@@ -523,13 +527,13 @@ impl HostManager {
                             {
                                 ImageAnalysisError::ProviderRejected {
                                     status,
-                                    filename: filename.clone(),
+                                    asset_id,
                                     message: provider_message,
                                 }
                             } else {
                                 ImageAnalysisError::HttpError {
                                     status,
-                                    filename: filename.clone(),
+                                    subject: asset_id.to_string(),
                                     response: response_text,
                                 }
                             };
@@ -542,10 +546,10 @@ impl HostManager {
                     Ok(Err(err)) => {
                         error!(
                             "{:?} request failed for {}: {}",
-                            self.interface, filename, err
+                            self.interface, asset_id, err
                         );
                         last_error = Some(ImageAnalysisError::HttpClientError {
-                            filename: Some(filename.clone()),
+                            asset_id: Some(asset_id),
                             error: format_error_chain(&err),
                         });
                     }
@@ -569,7 +573,7 @@ impl HostManager {
             if self.max_retries.is_none_or(|max| attempt < max.get()) {
                 info!(
                     "All hosts failed for {}, waiting {}s before retry",
-                    filename,
+                    asset_id,
                     self.retry_delay.as_secs()
                 );
                 tokio::time::sleep(self.retry_delay).await;
@@ -644,7 +648,7 @@ impl HostManager {
                     Ok(value) => self.interface.model_names(&value),
                     Err(err) => {
                         return HostCheck::Failed(ImageAnalysisError::JsonParsing {
-                            filename: "models_list".to_owned(),
+                            subject: "models_list".to_owned(),
                             error: format_error_chain(&err),
                         });
                     }
@@ -657,13 +661,13 @@ impl HostManager {
                 let status = response.status();
                 return HostCheck::Failed(ImageAnalysisError::HttpError {
                     status,
-                    filename: "models_list".to_owned(),
+                    subject: "models_list".to_owned(),
                     response: response.text().await.unwrap_or_default(),
                 });
             }
             Err(err) => {
                 return HostCheck::Failed(ImageAnalysisError::HttpClientError {
-                    filename: None,
+                    asset_id: None,
                     error: format_error_chain(&err),
                 });
             }
@@ -706,11 +710,11 @@ impl HostManager {
             }
             Ok(response) => HostCheck::Failed(ImageAnalysisError::HttpError {
                 status: response.status(),
-                filename: "test completion".to_owned(),
+                subject: "test completion".to_owned(),
                 response: response.text().await.unwrap_or_default(),
             }),
             Err(err) => HostCheck::Failed(ImageAnalysisError::HttpClientError {
-                filename: None,
+                asset_id: None,
                 error: format_error_chain(&err),
             }),
         }

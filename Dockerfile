@@ -37,9 +37,6 @@ COPY --from=builder --chown=appuser:appuser /app/target/release/immich-analyze /
 COPY --chown=appuser:appuser entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-RUN mkdir -p /data && \
-    chown -R appuser:appuser /data
-
 WORKDIR /app
 RUN chown appuser:appuser /app
 
