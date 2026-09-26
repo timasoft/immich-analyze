@@ -181,15 +181,33 @@ host_manager.host_marked_permanently_unavailable:
 error.empty_file:
   en: " Empty file: %{asset_id}"
   ru: " Пустой файл изображения: %{asset_id}"
-error.http_error_with_details:
-  en: " HTTP error %{status} for %{subject}. Response: %{response}"
-  ru: " HTTP ошибка %{status} для %{subject}. Ответ: %{response}"
+error.http_error_with_details_for_assets_list:
+  en: " HTTP error %{status} for assets list. Response: %{response}"
+  ru: " HTTP ошибка %{status} для списка ассетов. Ответ: %{response}"
+error.http_error_with_details_for_models_list:
+  en: " HTTP error %{status} for models list. Response: %{response}"
+  ru: " HTTP ошибка %{status} для списка моделей. Ответ: %{response}"
+error.http_error_with_details_for_test_completion:
+  en: " HTTP error %{status} for test completion. Response: %{response}"
+  ru: " HTTP ошибка %{status} для тестового запроса. Ответ: %{response}"
+error.http_error_with_details_for_asset:
+  en: " HTTP error %{status} for asset %{asset_id}. Response: %{response}"
+  ru: " HTTP ошибка %{status} для ассета %{asset_id}. Ответ: %{response}"
 error.empty_response:
   en: " Model returned empty description for asset %{asset_id}"
   ru: " Модель вернула пустое описание для ассета %{asset_id}"
-error.json_parsing_with_details:
-  en: " JSON parsing error for %{subject}: %{error}"
-  ru: " Ошибка парсинга JSON для %{subject}: %{error}"
+error.json_parsing_with_details_for_assets_list:
+  en: " JSON parsing error for assets list: %{error}"
+  ru: " Ошибка парсинга JSON для списка ассетов: %{error}"
+error.json_parsing_with_details_for_models_list:
+  en: " JSON parsing error for models list: %{error}"
+  ru: " Ошибка парсинга JSON для списка моделей: %{error}"
+error.json_parsing_with_details_for_test_completion:
+  en: " JSON parsing error for test completion: %{error}"
+  ru: " Ошибка парсинга JSON для тестового запроса: %{error}"
+error.json_parsing_with_details_for_asset:
+  en: " JSON parsing error for %{asset_id}: %{error}"
+  ru: " Ошибка парсинга JSON для %{asset_id}: %{error}"
 error.critical_processing_error:
   en: " Critical processing error for %{asset_id}"
   ru: " Критическая ошибка обработки %{asset_id}"
