@@ -7,13 +7,12 @@ use crate::{
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
         OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
-        cleanup_thumbnail,
     },
 };
-use log::{error, warn};
+use bytes::Bytes;
+use log::error;
 use std::{
     collections::HashSet,
-    path::Path,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -27,7 +26,7 @@ use uuid::Uuid;
 /// Process a downloaded thumbnail and write the AI description back to the asset.
 pub async fn process_new_asset(
     ctx: &ProcessingContext<'_>,
-    thumbnail_path: &Path,
+    image_data: Bytes,
     asset_id: Uuid,
 ) -> Result<(), ImageAnalysisError> {
     println!(
@@ -71,7 +70,7 @@ pub async fn process_new_asset(
 
     let (analysis, rejected) = match ctx
         .host_manager
-        .analyze_image(thumbnail_path, &final_prompt, asset_id)
+        .analyze_image(image_data, &final_prompt, asset_id)
         .await
     {
         Ok(analysis) => (analysis, false),
@@ -285,12 +284,12 @@ async fn handle_api_poll(
                     tokio::spawn(async move {
                         rust_i18n::set_locale(&config_clone.lang);
 
-                        let thumbnail_path = match bg_ctx_clone
+                        let thumbnail_data = match bg_ctx_clone
                             .immich_api_provider
-                            .get_thumbnail_path(&asset_id, config_clone.thumbnail_size)
+                            .get_thumbnail_bytes(&asset_id, config_clone.thumbnail_size)
                             .await
                         {
-                            Ok(path) => path,
+                            Ok(data) => data,
                             Err(err) => {
                                 error!("Failed to get thumbnail for asset {asset_id}: {err}");
                                 bg_ctx_clone
@@ -312,11 +311,7 @@ async fn handle_api_poll(
                             config_clone.disable_ai_wrapper,
                         );
 
-                        let result = process_new_asset(&ctx, &thumbnail_path, asset_id).await;
-
-                        if let Err(err) = cleanup_thumbnail(&thumbnail_path).await {
-                            warn!("Failed to cleanup thumbnail: {err}");
-                        }
+                        let result = process_new_asset(&ctx, thumbnail_data, asset_id).await;
 
                         {
                             let mut processing = bg_ctx_clone

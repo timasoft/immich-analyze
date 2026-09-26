@@ -35,8 +35,6 @@ pub enum ImageAnalysisError {
         asset_id: Option<Uuid>,
         error: String,
     },
-    #[error("IO error for {path}: {error}")]
-    IoError { path: String, error: String },
     #[error("Asset not found: {asset_id}")]
     AssetNotFound { asset_id: Uuid },
     #[error("No AI service hosts configured")]
@@ -115,9 +113,6 @@ impl ImageAnalysisError {
                 rust_i18n::t!("error.invalid_config", error = error).to_string()
             }
             Self::InvalidApiKey => rust_i18n::t!("error.invalid_api_key").to_string(),
-            Self::IoError { path, error } => {
-                rust_i18n::t!("error.io_error", path = path, error = error).to_string()
-            }
             Self::AssetNotFound { asset_id } => {
                 rust_i18n::t!("error.asset_not_found_in_library", asset_id = asset_id).to_string()
             }
@@ -179,7 +174,6 @@ impl ImageAnalysisError {
             | Self::JsonParsing { .. }
             | Self::AlreadyProcessed { .. }
             | Self::ProcessingError { .. }
-            | Self::IoError { .. }
             | Self::AssetNotFound { .. }
             | Self::NoHostsConfigured
             | Self::ModelNotFound { .. }
@@ -207,7 +201,6 @@ impl ImageAnalysisError {
             | Self::EmptyResponse { .. }
             | Self::JsonParsing { .. }
             | Self::ProcessingError { .. }
-            | Self::IoError { .. }
             | Self::AllHostsUnavailable
             | Self::AiRequestTimeout
             | Self::HttpClientError { .. }

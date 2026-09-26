@@ -3,10 +3,10 @@ use crate::{
     error::ImageAnalysisError,
     utils::{default_headers, format_error_chain},
 };
+use bytes::Bytes;
 use log::{info, warn};
 use reqwest::{Client, StatusCode, header::HeaderValue};
 use serde::Deserialize;
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use url::Url;
 use uuid::Uuid;
@@ -392,12 +392,11 @@ impl ImmichApiProvider {
         Ok(all_assets)
     }
 
-    /// Gets the filesystem path to the thumbnail for an asset.
+    /// Gets the raw thumbnail bytes for an asset.
     ///
     /// Calls `GET /api/assets/{id}/thumbnail?size={preview|thumbnail}`
     /// (requires `asset.view` permission).
-    /// Downloads the thumbnail to a temporary file and returns its path.
-    /// The caller is responsible for cleaning up the temporary file after use.
+    /// Downloads the thumbnail into memory and returns its bytes.
     /// Tries all API keys until one succeeds.
     ///
     /// # Arguments
@@ -405,12 +404,12 @@ impl ImmichApiProvider {
     /// * `thumbnail_size` - Thumbnail rendition to fetch
     ///
     /// # Returns
-    /// `PathBuf` to the thumbnail image file (either existing file or downloaded temp file)
-    pub async fn get_thumbnail_path(
+    /// Reference-counted buffer holding the thumbnail image bytes
+    pub async fn get_thumbnail_bytes(
         &self,
         asset_id: &Uuid,
         thumbnail_size: ThumbnailSize,
-    ) -> Result<PathBuf, ImageAnalysisError> {
+    ) -> Result<Bytes, ImageAnalysisError> {
         let url = self
             .base_url
             .join(&format!(
@@ -434,16 +433,7 @@ impl ImmichApiProvider {
                                 error: format_error_chain(&err),
                             })?;
 
-                    let temp_path =
-                        std::env::temp_dir().join(format!("{asset_id}_{thumbnail_size}.tmp"));
-                    tokio::fs::write(&temp_path, &bytes).await.map_err(|err| {
-                        ImageAnalysisError::ProcessingError {
-                            asset_id: *asset_id,
-                            error: format_error_chain(&err),
-                        }
-                    })?;
-
-                    return Ok(temp_path);
+                    return Ok(bytes);
                 }
                 Ok(resp) => {
                     last_error = Some(ImageAnalysisError::HttpError {

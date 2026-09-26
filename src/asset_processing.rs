@@ -8,18 +8,17 @@ use crate::{
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
         OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
-        cleanup_thumbnail,
     },
 };
+use bytes::Bytes;
 use futures::stream::{self, StreamExt as _};
-use log::warn;
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 async fn process_asset_with_existing_check(
     ctx: &ProcessingContext<'_>,
-    path: &Path,
+    image_data: Bytes,
     asset_id: Uuid,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
     match check_overwrite_policy(ctx.immich_api_provider, &asset_id, ctx.overwrite_policy).await? {
@@ -27,16 +26,16 @@ async fn process_asset_with_existing_check(
         OverwriteDecision::SkipBlocked { reason } => {
             Err(ImageAnalysisError::PermanentlyRejected { asset_id, reason })
         }
-        OverwriteDecision::AnalyzeFresh => process_asset(ctx, path, asset_id, None).await,
+        OverwriteDecision::AnalyzeFresh => process_asset(ctx, image_data, asset_id, None).await,
         OverwriteDecision::PreserveExisting(desc) => {
-            process_asset(ctx, path, asset_id, Some(desc)).await
+            process_asset(ctx, image_data, asset_id, Some(desc)).await
         }
     }
 }
 
 async fn process_asset(
     ctx: &ProcessingContext<'_>,
-    path: &Path,
+    image_data: Bytes,
     asset_id: Uuid,
     existing_description: Option<String>,
 ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
@@ -46,7 +45,7 @@ async fn process_asset(
 
     let (analysis, rejected) = match ctx
         .host_manager
-        .analyze_image(path, &final_prompt, asset_id)
+        .analyze_image(image_data, &final_prompt, asset_id)
         .await
     {
         Ok(analysis) => (analysis, false),
@@ -61,10 +60,6 @@ async fn process_asset(
         ),
         Err(err) => return Err(err),
     };
-
-    if let Err(err) = cleanup_thumbnail(path).await {
-        warn!("Failed to cleanup thumbnail: {err}");
-    }
 
     let final_description = build_final_description(
         &analysis,
@@ -108,12 +103,12 @@ pub async fn process_assets_concurrently(
         async move {
             rust_i18n::set_locale(&lang);
             mark_activity();
-            let thumbnail_path = match immich_api_provider
+            let thumbnail_data = match immich_api_provider
                 .clone()
-                .get_thumbnail_path(&asset_id, args.thumbnail_size)
+                .get_thumbnail_bytes(&asset_id, args.thumbnail_size)
                 .await
             {
-                Ok(thumbnail_path) => thumbnail_path,
+                Ok(thumbnail_data) => thumbnail_data,
                 Err(err) => {
                     let failed_asset_id = asset_id.to_string();
                     progress_clone
@@ -143,7 +138,7 @@ pub async fn process_assets_concurrently(
                 args.disable_ai_wrapper,
             );
 
-            let result = process_asset_with_existing_check(&ctx, &thumbnail_path, asset_id).await;
+            let result = process_asset_with_existing_check(&ctx, thumbnail_data, asset_id).await;
             match &result {
                 Err(
                     ImageAnalysisError::AlreadyProcessed { .. }
