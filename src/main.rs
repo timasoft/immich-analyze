@@ -1,31 +1,21 @@
 #![warn(non_ascii_idents)]
 
 use clap::Parser as _;
-use std::{num::NonZeroU32, sync::Arc, time::Duration};
-
-mod args;
-mod asset_processing;
-mod config;
-mod error;
-mod health;
-mod host_manager;
-mod immich_api;
-mod monitor;
-mod progress;
-mod prompt_enricher;
-mod utils;
-
-use args::{Args, OverwritePolicy};
-use asset_processing::process_assets_concurrently;
-use config::MonitorConfig;
-use host_manager::HostManager;
-use monitor::monitor_folder;
-use progress::SimpleProgress;
-use utils::{
-    default_headers, determine_locale, format_error_chain, get_system_locale, validate_args,
+use immich_analyze::{
+    args::{Args, OverwritePolicy},
+    asset_processing::{display_results, process_assets_concurrently},
+    config::MonitorConfig,
+    health,
+    host_manager::HostManager,
+    immich_api::ImmichApiProvider,
+    monitor::monitor_folder,
+    progress::SimpleProgress,
+    utils::{
+        default_headers, determine_locale, format_error_chain, get_system_locale, validate_args,
+    },
 };
 
-use crate::immich_api::ImmichApiProvider;
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -62,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.immich_api_keys.is_empty() {
             return Err("IMMICH_API_KEY required. Set via --immich-api-keys or IMMICH_API_KEY env var (comma-separated for multiple keys)".into());
         }
-        let provider = immich_api::ImmichApiProvider::new(api_url, &args.immich_api_keys)?;
+        let provider = ImmichApiProvider::new(api_url, &args.immich_api_keys)?;
         if !args.no_wait_for_immich {
             let timeout_display = if args.wait_timeout == 0 {
                 "∞".to_owned()
@@ -254,7 +244,7 @@ async fn run_batch_mode(
     .await;
 
     if !args.no_final_output {
-        asset_processing::display_results(&results, args.max_concurrent > 1);
+        display_results(&results, args.max_concurrent > 1);
     }
     Ok(())
 }
