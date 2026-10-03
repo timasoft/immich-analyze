@@ -46,7 +46,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 LABEL org.opencontainers.image.source="https://github.com/timasoft/immich-analyze"
 LABEL org.opencontainers.image.description="Immich image analysis service with AI-powered descriptions"
-LABEL org.opencontainers.image.version="0.5.1"
+LABEL org.opencontainers.image.version="0.6.0"
 LABEL org.opencontainers.image.authors="timasoft"
 
 USER appuser
