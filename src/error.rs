@@ -3,7 +3,7 @@ use std::fmt::Display;
 use thiserror::Error;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Subject {
     AssetsList,
     ModelsList,
@@ -22,7 +22,7 @@ impl Display for Subject {
     }
 }
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 #[expect(
     clippy::module_name_repetitions,
     reason = "an error type in the `error` module reads better with the `Error` suffix"
