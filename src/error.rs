@@ -4,14 +4,14 @@ use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy)]
-pub enum ErrorSubject {
+pub enum Subject {
     AssetsList,
     ModelsList,
     TestCompletion,
     Asset(Uuid),
 }
 
-impl Display for ErrorSubject {
+impl Display for Subject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::AssetsList => f.write_str("assets list"),
@@ -23,22 +23,23 @@ impl Display for ErrorSubject {
 }
 
 #[derive(Debug, Error, Clone)]
-pub enum ImageAnalysisError {
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "an error type in the `error` module reads better with the `Error` suffix"
+)]
+pub enum AnalysisError {
     #[error("Empty file: {asset_id}")]
     EmptyFile { asset_id: Uuid },
     #[error("HTTP error {status} for {subject}: {response}")]
     HttpError {
         status: StatusCode,
-        subject: ErrorSubject,
+        subject: Subject,
         response: String,
     },
     #[error("Empty response for {asset_id}")]
     EmptyResponse { asset_id: Uuid },
     #[error("JSON parsing error for {subject}: {error}")]
-    JsonParsing {
-        subject: ErrorSubject,
-        error: String,
-    },
+    JsonParsing { subject: Subject, error: String },
     #[error("Processing error for {asset_id}: {error}")]
     ProcessingError { asset_id: Uuid, error: String },
     #[error("Already processed: {asset_id}")]
@@ -78,7 +79,7 @@ pub enum ImageAnalysisError {
     PermanentlyRejected { asset_id: Uuid, reason: String },
 }
 
-impl ImageAnalysisError {
+impl AnalysisError {
     /// Returns a user-facing localized error message
     #[must_use]
     pub fn user_message(&self) -> String {
@@ -91,22 +92,22 @@ impl ImageAnalysisError {
                 subject,
                 response,
             } => match subject {
-                ErrorSubject::AssetsList => rust_i18n::t!(
+                Subject::AssetsList => rust_i18n::t!(
                     "error.http_error_with_details_for_assets_list",
                     status = status.to_string(),
                     response = response
                 ),
-                ErrorSubject::ModelsList => rust_i18n::t!(
+                Subject::ModelsList => rust_i18n::t!(
                     "error.http_error_with_details_for_models_list",
                     status = status.to_string(),
                     response = response
                 ),
-                ErrorSubject::TestCompletion => rust_i18n::t!(
+                Subject::TestCompletion => rust_i18n::t!(
                     "error.http_error_with_details_for_test_completion",
                     status = status.to_string(),
                     response = response
                 ),
-                ErrorSubject::Asset(asset_id) => rust_i18n::t!(
+                Subject::Asset(asset_id) => rust_i18n::t!(
                     "error.http_error_with_details_for_asset",
                     asset_id = asset_id,
                     status = status.to_string(),
@@ -118,19 +119,19 @@ impl ImageAnalysisError {
                 rust_i18n::t!("error.empty_response", asset_id = asset_id).to_string()
             }
             Self::JsonParsing { subject, error } => match subject {
-                ErrorSubject::AssetsList => rust_i18n::t!(
+                Subject::AssetsList => rust_i18n::t!(
                     "error.json_parsing_with_details_for_assets_list",
                     error = error,
                 ),
-                ErrorSubject::ModelsList => rust_i18n::t!(
+                Subject::ModelsList => rust_i18n::t!(
                     "error.json_parsing_with_details_for_models_list",
                     error = error,
                 ),
-                ErrorSubject::TestCompletion => rust_i18n::t!(
+                Subject::TestCompletion => rust_i18n::t!(
                     "error.json_parsing_with_details_for_test_completion",
                     error = error,
                 ),
-                ErrorSubject::Asset(asset_id) => rust_i18n::t!(
+                Subject::Asset(asset_id) => rust_i18n::t!(
                     "error.json_parsing_with_details_for_asset",
                     asset_id = asset_id,
                     error = error,

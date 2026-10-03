@@ -1,10 +1,14 @@
 use crate::{
     args::{Args, OverwritePolicy, ThumbnailSize},
     host_manager::HostManager,
-    immich_api::ImmichApiProvider,
+    immich_api::ApiProvider,
 };
 
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "a config type in the `config` module reads better with the `Config` suffix"
+)]
 pub struct MonitorConfig {
     pub lang: String,
     pub overwrite_policy: OverwritePolicy,
@@ -32,7 +36,7 @@ impl MonitorConfig {
 
 #[derive(Clone)]
 pub struct ProcessingContext<'a> {
-    pub immich_api_provider: &'a ImmichApiProvider,
+    pub immich_api_provider: &'a ApiProvider,
     pub prompt: &'a str,
     pub host_manager: &'a HostManager,
     pub overwrite_policy: OverwritePolicy,
@@ -44,7 +48,7 @@ pub struct ProcessingContext<'a> {
 impl<'a> ProcessingContext<'a> {
     #[must_use]
     pub const fn new(
-        immich_api_provider: &'a ImmichApiProvider,
+        immich_api_provider: &'a ApiProvider,
         prompt: &'a str,
         host_manager: &'a HostManager,
         overwrite_policy: OverwritePolicy,

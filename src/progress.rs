@@ -1,7 +1,7 @@
 use std::time::Instant;
 
-/// Simple progress display without external dependencies
-pub struct SimpleProgress {
+/// Simple textual progress display without external dependencies
+pub struct Indicator {
     pub total: u64,
     pub current: u64,
     pub start_time: Instant,
@@ -9,7 +9,8 @@ pub struct SimpleProgress {
     pub finish_message: String,
 }
 
-impl SimpleProgress {
+impl Indicator {
+    #[must_use]
     pub fn new(total: u64, finish_message: &str) -> Self {
         Self {
             total,

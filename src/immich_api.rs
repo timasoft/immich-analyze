@@ -1,6 +1,6 @@
 use crate::{
     args::ThumbnailSize,
-    error::{ErrorSubject, ImageAnalysisError},
+    error::{AnalysisError, Subject},
     utils::{default_headers, format_error_chain},
 };
 use bytes::Bytes;
@@ -120,23 +120,23 @@ struct AssetSearchResult {
 /// Provider for accessing Immich data via the REST API.
 /// Supports multiple API keys for multi-user setups.
 #[derive(Clone)]
-pub struct ImmichApiProvider {
+pub struct ApiProvider {
     /// HTTP clients with authentication headers (one per API key)
     clients: Vec<Client>,
     /// Base URL of the Immich server (e.g., "<https://immich.example.com>")
     base_url: Url,
 }
 
-impl std::fmt::Debug for ImmichApiProvider {
+impl std::fmt::Debug for ApiProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ImmichApiProvider")
+        f.debug_struct("ApiProvider")
             .field("base_url", &self.base_url)
             .field("clients", &format!("{} clients", self.clients.len()))
             .finish()
     }
 }
 
-impl ImmichApiProvider {
+impl ApiProvider {
     const PAGE_SIZE: usize = 1000;
 
     /// Creates a new Immich API provider.
@@ -146,26 +146,27 @@ impl ImmichApiProvider {
     /// * `api_keys` - List of API keys for authentication (created in Immich web UI)
     ///
     /// # Errors
-    /// Returns an error if the URL is invalid or any API key contains invalid characters.
-    pub fn new(base_url_str: &str, api_keys: &[String]) -> Result<Self, ImageAnalysisError> {
-        let base_url =
-            Url::parse(base_url_str).map_err(|err| ImageAnalysisError::InvalidConfig {
-                error: format_error_chain(&err),
-            })?;
+    /// Returns [`AnalysisError::InvalidConfig`] when `base_url_str` is not a valid URL or `api_keys` is empty,
+    /// [`AnalysisError::InvalidApiKey`] when a key contains characters that are invalid in an HTTP header,
+    /// and [`AnalysisError::HttpClientError`] when the HTTP client cannot be built.
+    pub fn new(base_url_str: &str, api_keys: &[String]) -> Result<Self, AnalysisError> {
+        let base_url = Url::parse(base_url_str).map_err(|err| AnalysisError::InvalidConfig {
+            error: format_error_chain(&err),
+        })?;
 
         let clients: Vec<Client> = api_keys
             .iter()
             .map(|api_key| {
                 let mut headers = default_headers();
-                let header_value = HeaderValue::from_str(api_key)
-                    .map_err(|_| ImageAnalysisError::InvalidApiKey)?;
+                let header_value =
+                    HeaderValue::from_str(api_key).map_err(|_| AnalysisError::InvalidApiKey)?;
                 headers.insert("x-api-key", header_value);
 
                 Client::builder()
                     .default_headers(headers)
                     .timeout(Duration::from_secs(30))
                     .build()
-                    .map_err(|err| ImageAnalysisError::HttpClientError {
+                    .map_err(|err| AnalysisError::HttpClientError {
                         asset_id: None,
                         error: format_error_chain(&err),
                     })
@@ -173,7 +174,7 @@ impl ImmichApiProvider {
             .collect::<Result<Vec<_>, _>>()?;
 
         if clients.is_empty() {
-            return Err(ImageAnalysisError::InvalidConfig {
+            return Err(AnalysisError::InvalidConfig {
                 error: "At least one API key is required".to_owned(),
             });
         }
@@ -190,17 +191,20 @@ impl ImmichApiProvider {
     /// * `retry_interval` — seconds between retries
     ///
     /// # Errors
-    /// Returns an error if the timeout is exceeded.
+    /// Returns [`AnalysisError::InvalidConfig`] when the ping URL cannot be built,
+    /// and [`AnalysisError::HttpClientError`] when the timeout is exceeded before the
+    /// server answers with `"pong"`.
     pub async fn wait_until_ready(
         &self,
         timeout_secs: u64,
         retry_interval: u64,
-    ) -> Result<(), ImageAnalysisError> {
-        let ping_url = self.base_url.join("/api/server/ping").map_err(|err| {
-            ImageAnalysisError::InvalidConfig {
-                error: format_error_chain(&err),
-            }
-        })?;
+    ) -> Result<(), AnalysisError> {
+        let ping_url =
+            self.base_url
+                .join("/api/server/ping")
+                .map_err(|err| AnalysisError::InvalidConfig {
+                    error: format_error_chain(&err),
+                })?;
 
         let deadline = if timeout_secs == 0 {
             None
@@ -250,7 +254,7 @@ impl ImmichApiProvider {
                 } else {
                     timeout_secs.to_string()
                 };
-                return Err(ImageAnalysisError::HttpClientError {
+                return Err(AnalysisError::HttpClientError {
                     asset_id: None,
                     error: format!(
                         "Timed out waiting for Immich after {timeout_display}s: {last_err}"
@@ -270,8 +274,15 @@ impl ImmichApiProvider {
     /// Tries all keys for each page request on failure.
     ///
     /// # Returns
-    /// Vec<AssetRef> containing all assets with their ID and original path.
-    pub async fn get_assets(&self) -> Result<Vec<AssetRef>, ImageAnalysisError> {
+    /// `Vec<AssetRef>` containing all assets with their ID and original path.
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::InvalidConfig`] when the search URL cannot be built,
+    /// [`AnalysisError::HttpClientError`] when a page request fails,
+    /// [`AnalysisError::HttpError`] when a page request answers with a non-success status,
+    /// [`AnalysisError::JsonParsing`] when a page body cannot be parsed,
+    /// and [`AnalysisError::InvalidUuid`] when a page carries a malformed asset ID.
+    pub async fn get_assets(&self) -> Result<Vec<AssetRef>, AnalysisError> {
         self.search_assets_paginated(None).await
     }
 
@@ -281,6 +292,7 @@ impl ImmichApiProvider {
     /// Uses the `createdAfter` filter to retrieve only assets added to Immich
     /// after the specified date. This is useful for incremental polling in monitor mode.
     /// Fully paginates each API key separately (multi-user support).
+    /// Tries all keys for each page request on failure.
     ///
     /// # Arguments
     /// * `since` - ISO 8601 formatted datetime string (e.g., "2024-01-15T10:30:00.000Z")
@@ -288,7 +300,14 @@ impl ImmichApiProvider {
     ///   will be included in the results.
     ///
     /// # Returns
-    /// Vec<AssetRef> containing assets created after the specified timestamp.
+    /// `Vec<AssetRef>` containing assets created after the specified timestamp.
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::InvalidConfig`] when the search URL cannot be built,
+    /// [`AnalysisError::HttpClientError`] when a page request fails,
+    /// [`AnalysisError::HttpError`] when a page request answers with a non-success status,
+    /// [`AnalysisError::JsonParsing`] when a page body cannot be parsed,
+    /// and [`AnalysisError::InvalidUuid`] when a page carries a malformed asset ID.
     ///
     /// # Example
     /// ```rust
@@ -298,7 +317,7 @@ impl ImmichApiProvider {
     pub async fn get_assets_since_timestamp(
         &self,
         since: impl Into<String>,
-    ) -> Result<Vec<AssetRef>, ImageAnalysisError> {
+    ) -> Result<Vec<AssetRef>, AnalysisError> {
         self.search_assets_paginated(Some(since.into())).await
     }
 
@@ -308,11 +327,11 @@ impl ImmichApiProvider {
     async fn search_assets_paginated(
         &self,
         since: Option<String>,
-    ) -> Result<Vec<AssetRef>, ImageAnalysisError> {
+    ) -> Result<Vec<AssetRef>, AnalysisError> {
         let mut all_assets = Vec::new();
 
         let search_url = self.base_url.join("/api/search/metadata").map_err(|err| {
-            ImageAnalysisError::InvalidConfig {
+            AnalysisError::InvalidConfig {
                 error: format_error_chain(&err),
             }
         })?;
@@ -339,7 +358,7 @@ impl ImmichApiProvider {
                     .json(&body)
                     .send()
                     .await
-                    .map_err(|err| ImageAnalysisError::HttpClientError {
+                    .map_err(|err| AnalysisError::HttpClientError {
                         asset_id: None,
                         error: format_error_chain(&err),
                     })?;
@@ -353,9 +372,9 @@ impl ImmichApiProvider {
                             String::new()
                         }
                     };
-                    return Err(ImageAnalysisError::HttpError {
+                    return Err(AnalysisError::HttpError {
                         status,
-                        subject: ErrorSubject::AssetsList,
+                        subject: Subject::AssetsList,
                         response: body,
                     });
                 }
@@ -364,8 +383,8 @@ impl ImmichApiProvider {
                     response
                         .json()
                         .await
-                        .map_err(|err| ImageAnalysisError::JsonParsing {
-                            subject: ErrorSubject::AssetsList,
+                        .map_err(|err| AnalysisError::JsonParsing {
+                            subject: Subject::AssetsList,
                             error: format_error_chain(&err),
                         })?;
 
@@ -375,7 +394,7 @@ impl ImmichApiProvider {
 
                 for item in search_result.assets.items {
                     let asset_id =
-                        Uuid::parse_str(&item.id).map_err(|_| ImageAnalysisError::InvalidUuid {
+                        Uuid::parse_str(&item.id).map_err(|_| AnalysisError::InvalidUuid {
                             asset_id: item.id.clone(),
                         })?;
 
@@ -405,17 +424,22 @@ impl ImmichApiProvider {
     ///
     /// # Returns
     /// Reference-counted buffer holding the thumbnail image bytes
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::InvalidConfig`] when the thumbnail URL cannot be built,
+    /// [`AnalysisError::HttpClientError`] when the request or the response body transfer fails,
+    /// and [`AnalysisError::HttpError`] when the server answers with a non-success status.
     pub async fn get_thumbnail_bytes(
         &self,
         asset_id: &Uuid,
         thumbnail_size: ThumbnailSize,
-    ) -> Result<Bytes, ImageAnalysisError> {
+    ) -> Result<Bytes, AnalysisError> {
         let url = self
             .base_url
             .join(&format!(
                 "/api/assets/{asset_id}/thumbnail?size={thumbnail_size}"
             ))
-            .map_err(|err| ImageAnalysisError::InvalidConfig {
+            .map_err(|err| AnalysisError::InvalidConfig {
                 error: format_error_chain(&err),
             })?;
 
@@ -428,7 +452,7 @@ impl ImmichApiProvider {
                     let bytes =
                         resp.bytes()
                             .await
-                            .map_err(|err| ImageAnalysisError::HttpClientError {
+                            .map_err(|err| AnalysisError::HttpClientError {
                                 asset_id: Some(*asset_id),
                                 error: format_error_chain(&err),
                             })?;
@@ -436,9 +460,9 @@ impl ImmichApiProvider {
                     return Ok(bytes);
                 }
                 Ok(resp) => {
-                    last_error = Some(ImageAnalysisError::HttpError {
+                    last_error = Some(AnalysisError::HttpError {
                         status: resp.status(),
-                        subject: ErrorSubject::Asset(*asset_id),
+                        subject: Subject::Asset(*asset_id),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -449,7 +473,7 @@ impl ImmichApiProvider {
                     });
                 }
                 Err(err) => {
-                    last_error = Some(ImageAnalysisError::HttpClientError {
+                    last_error = Some(AnalysisError::HttpClientError {
                         asset_id: Some(*asset_id),
                         error: format_error_chain(&err),
                     });
@@ -458,7 +482,7 @@ impl ImmichApiProvider {
         }
 
         Err(
-            last_error.unwrap_or_else(|| ImageAnalysisError::HttpClientError {
+            last_error.unwrap_or_else(|| AnalysisError::HttpClientError {
                 asset_id: Some(*asset_id),
                 error: "No API keys available".to_owned(),
             }),
@@ -473,11 +497,16 @@ impl ImmichApiProvider {
     /// # Arguments
     /// * `asset_id` - UUID of the asset
     /// * `description` - New description text
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::InvalidConfig`] when the asset URL cannot be built,
+    /// [`AnalysisError::HttpClientError`] when the request fails,
+    /// and [`AnalysisError::HttpError`] when the server answers with a non-success status.
     pub async fn update_description(
         &self,
         asset_id: &Uuid,
         description: &str,
-    ) -> Result<(), ImageAnalysisError> {
+    ) -> Result<(), AnalysisError> {
         #[derive(serde::Serialize)]
         #[serde(rename_all = "camelCase")]
         struct UpdateRequest<'a> {
@@ -487,7 +516,7 @@ impl ImmichApiProvider {
         let url = self
             .base_url
             .join(&format!("/api/assets/{asset_id}"))
-            .map_err(|err| ImageAnalysisError::InvalidConfig {
+            .map_err(|err| AnalysisError::InvalidConfig {
                 error: format_error_chain(&err),
             })?;
 
@@ -500,9 +529,9 @@ impl ImmichApiProvider {
             match response {
                 Ok(resp) if resp.status().is_success() => return Ok(()),
                 Ok(resp) => {
-                    last_error = Some(ImageAnalysisError::HttpError {
+                    last_error = Some(AnalysisError::HttpError {
                         status: resp.status(),
-                        subject: ErrorSubject::Asset(*asset_id),
+                        subject: Subject::Asset(*asset_id),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -513,7 +542,7 @@ impl ImmichApiProvider {
                     });
                 }
                 Err(err) => {
-                    last_error = Some(ImageAnalysisError::HttpClientError {
+                    last_error = Some(AnalysisError::HttpClientError {
                         asset_id: Some(*asset_id),
                         error: format_error_chain(&err),
                     });
@@ -522,7 +551,7 @@ impl ImmichApiProvider {
         }
 
         Err(
-            last_error.unwrap_or_else(|| ImageAnalysisError::HttpClientError {
+            last_error.unwrap_or_else(|| AnalysisError::HttpClientError {
                 asset_id: Some(*asset_id),
                 error: "No API keys available".to_owned(),
             }),
@@ -539,11 +568,17 @@ impl ImmichApiProvider {
     ///
     /// # Returns
     /// `true` if description exists and is non-empty, `false` otherwise.
-    pub async fn has_description(&self, asset_id: &Uuid) -> Result<bool, ImageAnalysisError> {
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::InvalidConfig`] when the asset URL cannot be built,
+    /// [`AnalysisError::HttpClientError`] when the request fails,
+    /// [`AnalysisError::HttpError`] when the server answers with a non-success status,
+    /// and [`AnalysisError::JsonParsing`] when the asset body cannot be parsed.
+    pub async fn has_description(&self, asset_id: &Uuid) -> Result<bool, AnalysisError> {
         let url = self
             .base_url
             .join(&format!("/api/assets/{asset_id}"))
-            .map_err(|err| ImageAnalysisError::InvalidConfig {
+            .map_err(|err| AnalysisError::InvalidConfig {
                 error: format_error_chain(&err),
             })?;
 
@@ -556,8 +591,8 @@ impl ImmichApiProvider {
                     let asset: AssetResponse =
                         resp.json()
                             .await
-                            .map_err(|err| ImageAnalysisError::JsonParsing {
-                                subject: ErrorSubject::Asset(*asset_id),
+                            .map_err(|err| AnalysisError::JsonParsing {
+                                subject: Subject::Asset(*asset_id),
                                 error: format_error_chain(&err),
                             })?;
 
@@ -568,9 +603,9 @@ impl ImmichApiProvider {
                         .is_some_and(|desc| !desc.is_empty()));
                 }
                 Ok(resp) => {
-                    last_error = Some(ImageAnalysisError::HttpError {
+                    last_error = Some(AnalysisError::HttpError {
                         status: resp.status(),
-                        subject: ErrorSubject::Asset(*asset_id),
+                        subject: Subject::Asset(*asset_id),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -581,7 +616,7 @@ impl ImmichApiProvider {
                     });
                 }
                 Err(err) => {
-                    last_error = Some(ImageAnalysisError::HttpClientError {
+                    last_error = Some(AnalysisError::HttpClientError {
                         asset_id: Some(*asset_id),
                         error: format_error_chain(&err),
                     });
@@ -590,7 +625,7 @@ impl ImmichApiProvider {
         }
 
         Err(
-            last_error.unwrap_or_else(|| ImageAnalysisError::HttpClientError {
+            last_error.unwrap_or_else(|| AnalysisError::HttpClientError {
                 asset_id: Some(*asset_id),
                 error: "No API keys available".to_owned(),
             }),
@@ -608,11 +643,15 @@ impl ImmichApiProvider {
     /// # Returns
     /// `true` if the asset exists (200 response), `false` if not found (400/404 with "Not found" message).
     /// Defaults to `true` if all keys fail (conservative: let the write fail instead of skipping a valid asset).
-    pub async fn asset_exists(&self, asset_id: &Uuid) -> Result<bool, ImageAnalysisError> {
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::InvalidConfig`] when the asset URL cannot be built;
+    /// failing requests are deliberately reported as a successful existence check.
+    pub async fn asset_exists(&self, asset_id: &Uuid) -> Result<bool, AnalysisError> {
         let url = self
             .base_url
             .join(&format!("/api/assets/{asset_id}"))
-            .map_err(|err| ImageAnalysisError::InvalidConfig {
+            .map_err(|err| AnalysisError::InvalidConfig {
                 error: format_error_chain(&err),
             })?;
 
@@ -644,20 +683,27 @@ impl ImmichApiProvider {
     /// Gets full metadata for an asset including EXIF information.
     ///
     /// Calls `GET /api/assets/{id}` (requires `asset.read` permission).
+    /// Tries all API keys until one succeeds.
     ///
     /// # Arguments
     /// * `asset_id` - UUID of the asset
     ///
     /// # Returns
     /// `AssetMetadata` containing all available metadata
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::InvalidConfig`] when the asset URL cannot be built,
+    /// [`AnalysisError::HttpClientError`] when the request fails,
+    /// [`AnalysisError::HttpError`] when the server answers with a non-success status,
+    /// and [`AnalysisError::JsonParsing`] when the metadata body cannot be parsed.
     pub async fn get_asset_metadata(
         &self,
         asset_id: &Uuid,
-    ) -> Result<AssetMetadata, ImageAnalysisError> {
+    ) -> Result<AssetMetadata, AnalysisError> {
         let url = self
             .base_url
             .join(&format!("/api/assets/{asset_id}"))
-            .map_err(|err| ImageAnalysisError::InvalidConfig {
+            .map_err(|err| AnalysisError::InvalidConfig {
                 error: format_error_chain(&err),
             })?;
 
@@ -670,17 +716,17 @@ impl ImmichApiProvider {
                     let metadata: AssetMetadata =
                         resp.json()
                             .await
-                            .map_err(|err| ImageAnalysisError::JsonParsing {
-                                subject: ErrorSubject::Asset(*asset_id),
+                            .map_err(|err| AnalysisError::JsonParsing {
+                                subject: Subject::Asset(*asset_id),
                                 error: format_error_chain(&err),
                             })?;
 
                     return Ok(metadata);
                 }
                 Ok(resp) => {
-                    last_error = Some(ImageAnalysisError::HttpError {
+                    last_error = Some(AnalysisError::HttpError {
                         status: resp.status(),
-                        subject: ErrorSubject::Asset(*asset_id),
+                        subject: Subject::Asset(*asset_id),
                         response: match resp.text().await {
                             Ok(text) => text,
                             Err(err) => {
@@ -691,7 +737,7 @@ impl ImmichApiProvider {
                     });
                 }
                 Err(err) => {
-                    last_error = Some(ImageAnalysisError::HttpClientError {
+                    last_error = Some(AnalysisError::HttpClientError {
                         asset_id: Some(*asset_id),
                         error: format_error_chain(&err),
                     });
@@ -700,7 +746,7 @@ impl ImmichApiProvider {
         }
 
         Err(
-            last_error.unwrap_or_else(|| ImageAnalysisError::HttpClientError {
+            last_error.unwrap_or_else(|| AnalysisError::HttpClientError {
                 asset_id: Some(*asset_id),
                 error: "No API keys available".to_owned(),
             }),
@@ -716,10 +762,12 @@ impl ImmichApiProvider {
     ///
     /// # Returns
     /// `Some(description)` if a non-empty description exists, `None` otherwise.
-    pub async fn get_description(
-        &self,
-        asset_id: &Uuid,
-    ) -> Result<Option<String>, ImageAnalysisError> {
+    ///
+    /// # Errors
+    /// Returns every error [`Self::get_asset_metadata`] can return:
+    /// [`AnalysisError::InvalidConfig`], [`AnalysisError::HttpClientError`],
+    /// [`AnalysisError::HttpError`], and [`AnalysisError::JsonParsing`].
+    pub async fn get_description(&self, asset_id: &Uuid) -> Result<Option<String>, AnalysisError> {
         match self.get_asset_metadata(asset_id).await {
             Ok(metadata) => Ok(metadata
                 .exif_info

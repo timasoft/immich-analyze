@@ -1,10 +1,10 @@
 use crate::{
     config::ProcessingContext,
-    error::ImageAnalysisError,
+    error::AnalysisError,
     health::mark_activity,
     host_manager::{HostManager, ImageAnalysisResult},
-    immich_api::{AssetRef, ImmichApiProvider},
-    progress::SimpleProgress,
+    immich_api::{ApiProvider, AssetRef},
+    progress::Indicator,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
         OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
@@ -20,11 +20,11 @@ async fn process_asset_with_existing_check(
     ctx: &ProcessingContext<'_>,
     image_data: Bytes,
     asset_id: Uuid,
-) -> Result<ImageAnalysisResult, ImageAnalysisError> {
+) -> Result<ImageAnalysisResult, AnalysisError> {
     match check_overwrite_policy(ctx.immich_api_provider, &asset_id, ctx.overwrite_policy).await? {
-        OverwriteDecision::Skip => Err(ImageAnalysisError::AlreadyProcessed { asset_id }),
+        OverwriteDecision::Skip => Err(AnalysisError::AlreadyProcessed { asset_id }),
         OverwriteDecision::SkipBlocked { reason } => {
-            Err(ImageAnalysisError::PermanentlyRejected { asset_id, reason })
+            Err(AnalysisError::PermanentlyRejected { asset_id, reason })
         }
         OverwriteDecision::AnalyzeFresh => process_asset(ctx, image_data, asset_id, None).await,
         OverwriteDecision::PreserveExisting(desc) => {
@@ -38,7 +38,7 @@ async fn process_asset(
     image_data: Bytes,
     asset_id: Uuid,
     existing_description: Option<String>,
-) -> Result<ImageAnalysisResult, ImageAnalysisError> {
+) -> Result<ImageAnalysisResult, AnalysisError> {
     let final_prompt = enrich_prompt_if_needed(ctx, &asset_id)
         .await
         .unwrap_or_else(|| ctx.prompt.to_owned());
@@ -49,7 +49,7 @@ async fn process_asset(
         .await
     {
         Ok(analysis) => (analysis, false),
-        Err(ImageAnalysisError::ProviderRejected {
+        Err(AnalysisError::ProviderRejected {
             status, message, ..
         }) => (
             ImageAnalysisResult {
@@ -75,7 +75,7 @@ async fn process_asset(
         .await?;
 
     if rejected {
-        return Err(ImageAnalysisError::PermanentlyRejected {
+        return Err(AnalysisError::PermanentlyRejected {
             asset_id: analysis.asset_id,
             reason: analysis.description,
         });
@@ -86,12 +86,12 @@ async fn process_asset(
 
 pub async fn process_assets_concurrently(
     assets: Vec<AssetRef>,
-    immich_api_provider: &ImmichApiProvider,
+    immich_api_provider: &ApiProvider,
     args: &crate::args::Args,
     locale: &str,
-    progress: Arc<Mutex<SimpleProgress>>,
+    progress: Arc<Mutex<Indicator>>,
     host_manager: Arc<HostManager>,
-) -> Vec<(String, Result<ImageAnalysisResult, ImageAnalysisError>)> {
+) -> Vec<(String, Result<ImageAnalysisResult, AnalysisError>)> {
     stream::iter(assets.into_iter().map(|asset| {
         let prompt = args.prompt.clone();
         let progress_clone = Arc::clone(&progress);
@@ -141,9 +141,9 @@ pub async fn process_assets_concurrently(
             let result = process_asset_with_existing_check(&ctx, thumbnail_data, asset_id).await;
             match &result {
                 Err(
-                    ImageAnalysisError::AlreadyProcessed { .. }
-                    | ImageAnalysisError::AssetNotFound { .. }
-                    | ImageAnalysisError::PermanentlyRejected { .. },
+                    AnalysisError::AlreadyProcessed { .. }
+                    | AnalysisError::AssetNotFound { .. }
+                    | AnalysisError::PermanentlyRejected { .. },
                 ) => {
                     progress_clone
                         .lock()
@@ -172,7 +172,7 @@ pub async fn process_assets_concurrently(
 }
 
 pub fn display_results(
-    results: &[(String, Result<ImageAnalysisResult, ImageAnalysisError>)],
+    results: &[(String, Result<ImageAnalysisResult, AnalysisError>)],
     use_sorting: bool,
 ) {
     println!("{}", rust_i18n::t!("main.analysis_results"));
@@ -216,9 +216,9 @@ pub fn display_results(
     print_statistics(successful, failed, skipped, blocked);
 }
 
-fn handle_error_result(asset_id: &str, error: &ImageAnalysisError) -> (&'static str, String) {
+fn handle_error_result(asset_id: &str, error: &AnalysisError) -> (&'static str, String) {
     match error {
-        ImageAnalysisError::AlreadyProcessed { .. } => (
+        AnalysisError::AlreadyProcessed { .. } => (
             "skipped",
             format!(
                 "{} [{}] {}\n{}",
@@ -228,7 +228,7 @@ fn handle_error_result(asset_id: &str, error: &ImageAnalysisError) -> (&'static 
                 "-".repeat(80)
             ),
         ),
-        ImageAnalysisError::PermanentlyRejected { reason, .. } => (
+        AnalysisError::PermanentlyRejected { reason, .. } => (
             "blocked",
             format!(
                 "{} [{}] {}\n{}",
@@ -242,7 +242,7 @@ fn handle_error_result(asset_id: &str, error: &ImageAnalysisError) -> (&'static 
                 "-".repeat(80)
             ),
         ),
-        ImageAnalysisError::AssetNotFound { .. } => (
+        AnalysisError::AssetNotFound { .. } => (
             "skipped",
             format!(
                 "{} [{}] {}\n{}",
