@@ -311,8 +311,14 @@ impl ApiProvider {
     ///
     /// # Example
     /// ```rust
+    /// # use immich_analyze::{error::AnalysisError, immich_api::ApiProvider};
+    /// # async fn fetch_new_assets(
+    /// #     provider: &ApiProvider,
+    /// # ) -> Result<Vec<immich_analyze::immich_api::AssetRef>, AnalysisError> {
     /// let since = "2024-01-01T00:00:00.000Z";
     /// let assets = provider.get_assets_since_timestamp(since).await?;
+    /// # Ok(assets)
+    /// # }
     /// ```
     pub async fn get_assets_since_timestamp(
         &self,
