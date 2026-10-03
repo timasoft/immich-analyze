@@ -27,6 +27,7 @@ pub struct PromptContext {
 }
 
 impl PromptContext {
+    #[must_use]
     pub fn new(base_prompt: &str) -> Self {
         Self {
             base_prompt: base_prompt.to_owned(),
@@ -52,32 +53,38 @@ impl PromptContext {
         }
     }
 
+    #[must_use]
     pub fn with_created_at(mut self, date: Option<String>) -> Self {
         self.created_at = date;
         self
     }
 
+    #[must_use]
     pub fn with_location(mut self, location: Option<String>) -> Self {
         self.location = location;
         self
     }
 
+    #[must_use]
     pub fn with_camera_info(mut self, make: Option<String>, model: Option<String>) -> Self {
         self.camera_make = make;
         self.camera_model = model;
         self
     }
 
+    #[must_use]
     pub fn with_exif_description(mut self, desc: Option<String>) -> Self {
         self.exif_description = desc;
         self
     }
 
+    #[must_use]
     pub fn with_lens_model(mut self, lens: Option<String>) -> Self {
         self.lens_model = lens;
         self
     }
 
+    #[must_use]
     pub fn with_exposure_settings(
         mut self,
         exposure_time: Option<String>,
@@ -92,16 +99,19 @@ impl PromptContext {
         self
     }
 
+    #[must_use]
     pub const fn with_rating(mut self, rating: Option<i8>) -> Self {
         self.rating = rating;
         self
     }
 
+    #[must_use]
     pub fn with_time_zone(mut self, tz: Option<String>) -> Self {
         self.time_zone = tz;
         self
     }
 
+    #[must_use]
     pub fn with_file_info(
         mut self,
         original_file_name: Option<String>,
@@ -112,27 +122,32 @@ impl PromptContext {
         self
     }
 
+    #[must_use]
     pub fn with_people(mut self, people: Vec<(String, Option<u32>)>) -> Self {
         self.people = people;
         self
     }
 
+    #[must_use]
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
         self
     }
 
+    #[must_use]
     pub fn with_resolution(mut self, width: Option<i32>, height: Option<i32>) -> Self {
         self.width = width.and_then(|w| u32::try_from(w).ok());
         self.height = height.and_then(|height_val| u32::try_from(height_val).ok());
         self
     }
 
+    #[must_use]
     pub fn with_mime_type(mut self, mime: Option<String>) -> Self {
         self.mime_type = mime;
         self
     }
 
+    #[must_use]
     pub fn build_enriched_prompt(&self) -> String {
         let mut context_parts = Vec::new();
 

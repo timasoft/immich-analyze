@@ -1,8 +1,8 @@
 use crate::{
     args::{Interface, OverwritePolicy},
-    error::ImageAnalysisError,
+    error::AnalysisError,
     host_manager::ImageAnalysisResult,
-    immich_api::ImmichApiProvider,
+    immich_api::ApiProvider,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bytes::Bytes;
@@ -67,6 +67,7 @@ pub fn default_headers() -> HeaderMap {
 }
 
 /// Get system locale from environment variables
+#[must_use]
 pub fn get_system_locale() -> String {
     std::env::var("LC_ALL")
         .or_else(|_| std::env::var("LC_MESSAGES"))
@@ -88,25 +89,35 @@ pub fn get_system_locale() -> String {
 
 static AI_BLOCK_PATTERN: OnceLock<Regex> = OnceLock::new();
 
+/// Returns the regex matching `[AI]...[/AI]` blocks in stored descriptions.
+///
+/// # Panics
+/// Panics if the constant AI block pattern fails to compile.
 pub fn get_ai_block_pattern() -> &'static Regex {
     AI_BLOCK_PATTERN
         .get_or_init(|| Regex::new(r"(?s)\[AI\].*?\[/AI\]").expect("Invalid AI block regex"))
 }
 
+/// Re-encodes `image_data` as a base64-encoded PNG, downscaling to `max_image_size` on the
+/// longest edge when that limit is non-zero.
+///
+/// # Errors
+/// Returns [`AnalysisError::EmptyFile`] when `image_data` is empty, and
+/// [`AnalysisError::ProcessingError`] when the bytes cannot be decoded
+/// or the re-encoded PNG cannot be produced.
 pub fn image_bytes_to_png_base64(
     image_data: Bytes,
     asset_id: Uuid,
     max_image_size: u32,
-) -> Result<String, ImageAnalysisError> {
+) -> Result<String, AnalysisError> {
     if image_data.is_empty() {
-        return Err(ImageAnalysisError::EmptyFile { asset_id });
+        return Err(AnalysisError::EmptyFile { asset_id });
     }
-    let image = image::load_from_memory(&image_data).map_err(|err| {
-        ImageAnalysisError::ProcessingError {
+    let image =
+        image::load_from_memory(&image_data).map_err(|err| AnalysisError::ProcessingError {
             asset_id,
             error: format_error_chain(&err),
-        }
-    })?;
+        })?;
     drop(image_data);
     let mut png_data = Cursor::new(Vec::new());
     let output_image = if max_image_size > 0 && image.width().max(image.height()) > max_image_size {
@@ -129,7 +140,7 @@ pub fn image_bytes_to_png_base64(
     };
     output_image
         .write_to(&mut png_data, image::ImageFormat::Png)
-        .map_err(|err| ImageAnalysisError::ProcessingError {
+        .map_err(|err| AnalysisError::ProcessingError {
             asset_id,
             error: format_error_chain(&err),
         })?;
@@ -137,13 +148,17 @@ pub fn image_bytes_to_png_base64(
 }
 
 /// Check overwrite policy and return decision on how to handle the asset.
+///
+/// # Errors
+/// Returns [`AnalysisError::AssetNotFound`] when the asset does not exist,
+/// and propagates any failure of the underlying description lookups.
 pub async fn check_overwrite_policy(
-    immich_api_provider: &ImmichApiProvider,
+    immich_api_provider: &ApiProvider,
     asset_id: &Uuid,
     overwrite_policy: OverwritePolicy,
-) -> Result<OverwriteDecision, ImageAnalysisError> {
+) -> Result<OverwriteDecision, AnalysisError> {
     if !immich_api_provider.asset_exists(asset_id).await? {
-        return Err(ImageAnalysisError::AssetNotFound {
+        return Err(AnalysisError::AssetNotFound {
             asset_id: *asset_id,
         });
     }
@@ -176,13 +191,28 @@ pub async fn check_overwrite_policy(
     }
 }
 
+/// Builds the description to store for an asset.
+///
+/// The AI text is wrapped in `[AI]...[/AI]` markers unless `disable_ai_wrapper` is set. When
+/// `preserve_human` is set, an existing `[AI]...[/AI]` block is replaced in place, keeping any
+/// surrounding human-written text; if the existing text contains no AI block, the new block is
+/// appended instead.
+///
+/// `existing_description` is the description the caller already knows about. `None` means
+/// "unknown", not "empty": with `preserve_human` set this function then looks the description up
+/// itself via [`ApiProvider::get_description`].
+///
+/// # Errors
+/// Returns every error [`ApiProvider::get_description`] can return:
+/// [`AnalysisError::InvalidConfig`], [`AnalysisError::HttpClientError`],
+/// [`AnalysisError::HttpError`], and [`AnalysisError::JsonParsing`].
 pub async fn build_final_description(
     analysis: &ImageAnalysisResult,
-    immich_api_provider: &ImmichApiProvider,
+    immich_api_provider: &ApiProvider,
     preserve_human: bool,
     existing_description: Option<String>,
     disable_ai_wrapper: bool,
-) -> Result<String, ImageAnalysisError> {
+) -> Result<String, AnalysisError> {
     if disable_ai_wrapper {
         return Ok(analysis.description.trim().to_owned());
     }
@@ -222,6 +252,7 @@ pub async fn build_final_description(
     }
 }
 
+#[must_use]
 pub fn determine_locale(
     user_lang: &str,
     system_locale: &str,
@@ -257,6 +288,10 @@ pub fn determine_locale(
     "en".to_owned()
 }
 
+/// Validates argument combinations, reporting conflicts to the user.
+///
+/// # Errors
+/// Returns an error when `--combined` and `--monitor` are requested at the same time.
 pub fn validate_args(args: &crate::args::Args) -> Result<(), Box<dyn Error>> {
     if args.combined && args.monitor {
         eprintln!("{}", rust_i18n::t!("error.incompatible_flags"));
@@ -288,6 +323,7 @@ pub fn format_error_chain(err: &dyn Error) -> String {
 
 const MAX_SUGGESTION_DISTANCE: usize = 5;
 
+#[must_use]
 pub fn closest_name(name: &str, available: &[String]) -> Option<String> {
     let mut closest: Option<(usize, &str)> = None;
     for candidate in available {
@@ -317,6 +353,7 @@ fn normalize_model_name(interface: Interface, name: &str) -> Cow<'_, str> {
 
 /// Returns `true` if the configured model is served as one of the available models.
 /// Whether two names refer to the same model is decided by the interface's naming semantics.
+#[must_use]
 pub fn is_model_served(interface: Interface, model: &str, available: &[String]) -> bool {
     let target = normalize_model_name(interface, model);
     available
@@ -332,9 +369,11 @@ pub enum ProviderMessageClass {
     Unknown,
 }
 
-/// Classifies a provider error message. A message is only treated as a permanent
-/// content-policy block when it positively matches known content-policy indicators;
-/// anything else is either transient or unknown.
+/// Classifies a provider error message.
+///
+/// A message is only treated as a permanent content-policy block when it positively
+/// matches known content-policy indicators; anything else is either transient or unknown.
+#[must_use]
 pub fn classify_provider_message(message: &str) -> ProviderMessageClass {
     const CONTENT_POLICY_INDICATORS: &[&str] = &[
         "prohibited",

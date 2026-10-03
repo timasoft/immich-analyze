@@ -7,9 +7,9 @@ use immich_analyze::{
     config::MonitorConfig,
     health,
     host_manager::HostManager,
-    immich_api::ImmichApiProvider,
-    monitor::monitor_folder,
-    progress::SimpleProgress,
+    immich_api::ApiProvider,
+    monitor,
+    progress::Indicator,
     utils::{
         default_headers, determine_locale, format_error_chain, get_system_locale, validate_args,
     },
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.immich_api_keys.is_empty() {
             return Err("IMMICH_API_KEY required. Set via --immich-api-keys or IMMICH_API_KEY env var (comma-separated for multiple keys)".into());
         }
-        let provider = ImmichApiProvider::new(api_url, &args.immich_api_keys)?;
+        let provider = ApiProvider::new(api_url, &args.immich_api_keys)?;
         if !args.no_wait_for_immich {
             let timeout_display = if args.wait_timeout == 0 {
                 "∞".to_owned()
@@ -130,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_combined_mode(
     args: Args,
-    immich_api_provider: Arc<ImmichApiProvider>,
+    immich_api_provider: Arc<ApiProvider>,
     locale: &str,
     host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -172,7 +172,7 @@ async fn run_combined_mode(
 
 async fn run_monitor_mode(
     args: &Args,
-    immich_api_provider: Arc<ImmichApiProvider>,
+    immich_api_provider: Arc<ApiProvider>,
     locale: &str,
     host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -184,19 +184,19 @@ async fn run_monitor_mode(
         OverwritePolicy::None => {}
     }
     let monitor_config = MonitorConfig::from_args(args, locale);
-    monitor_folder(
+    monitor::run(
         immich_api_provider,
         &args.prompt,
         &monitor_config,
         host_manager,
     )
-    .await?;
+    .await;
     Ok(())
 }
 
 async fn run_batch_mode(
     args: &Args,
-    immich_api_provider: &ImmichApiProvider,
+    immich_api_provider: &ApiProvider,
     locale: &str,
     host_manager: Arc<HostManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -228,7 +228,7 @@ async fn run_batch_mode(
         OverwritePolicy::None => {}
     }
 
-    let progress = Arc::new(tokio::sync::Mutex::new(SimpleProgress::new(
+    let progress = Arc::new(tokio::sync::Mutex::new(Indicator::new(
         assets.len() as u64,
         &rust_i18n::t!("progress.processing_complete"),
     )));

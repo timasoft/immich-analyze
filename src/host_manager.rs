@@ -1,6 +1,6 @@
 use crate::{
     args::Interface,
-    error::{ErrorSubject, ImageAnalysisError},
+    error::{AnalysisError, Subject},
     utils::{
         ProviderMessageClass, classify_provider_message, closest_name, format_error_chain,
         image_bytes_to_png_base64, is_model_served,
@@ -27,6 +27,7 @@ pub struct ImageAnalysisResult {
 impl Interface {
     /// Returns the API endpoint path for the given interface.
     #[inline]
+    #[must_use]
     pub const fn endpoint(self) -> &'static str {
         match self {
             Self::Ollama => "/api/chat",
@@ -36,6 +37,7 @@ impl Interface {
 
     /// Returns the models list endpoint path for the given interface.
     #[inline]
+    #[must_use]
     pub const fn models_list_endpoint(self) -> &'static str {
         match self {
             Self::Ollama => "/api/tags",
@@ -45,6 +47,7 @@ impl Interface {
 
     /// Returns `true` if the interface supports Bearer token authentication.
     #[inline]
+    #[must_use]
     pub const fn supports_bearer_auth(self) -> bool {
         match self {
             Self::Ollama => false,
@@ -54,6 +57,7 @@ impl Interface {
 
     /// Returns `true` if a host without a models list can be verified via a test completion.
     #[inline]
+    #[must_use]
     pub const fn supports_completion_fallback(self) -> bool {
         match self {
             Self::Ollama | Self::OpenRouter => false,
@@ -64,6 +68,7 @@ impl Interface {
     /// Returns `true` if the interface uses Ollama-style name:tag aliasing
     /// (a bare name like `llava` is equivalent to `llava:latest`).
     #[inline]
+    #[must_use]
     pub const fn ollama_tag_semantics(self) -> bool {
         match self {
             Self::Ollama => true,
@@ -92,6 +97,7 @@ impl Interface {
     }
 
     /// Builds the minimal test completion request body for the given interface.
+    #[must_use]
     pub fn build_test_completion_body(self, model_name: &str) -> Value {
         match self {
             Self::Ollama => serde_json::json!({
@@ -145,6 +151,7 @@ impl Interface {
     }
 
     /// Parses the response JSON and extracts the content string for the given interface.
+    #[must_use]
     pub fn parse_response(self, json_value: &Value) -> Option<&str> {
         match self {
             Self::Ollama => json_value
@@ -162,6 +169,7 @@ impl Interface {
     }
 
     /// Builds the JSON request body specific to the AI service interface.
+    #[must_use]
     pub fn build_request_body(self, model_name: &str, prompt: &str, base64_image: &str) -> Value {
         match self {
             Self::Ollama => serde_json::json!({
@@ -200,6 +208,7 @@ impl Interface {
     }
 
     /// Returns interface-specific HTTP headers to attach to requests, if any.
+    #[must_use]
     pub fn additional_headers(self) -> Option<Vec<(&'static str, HeaderValue)>> {
         match self {
             Self::Ollama | Self::Llamacpp => None,
@@ -220,7 +229,7 @@ impl Interface {
 enum HostCheck {
     Present,
     Missing { closest: Option<String> },
-    Failed(ImageAnalysisError),
+    Failed(AnalysisError),
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +250,7 @@ pub struct HostManager {
 
 impl HostManager {
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         hosts: Vec<String>,
         interface: Interface,
@@ -269,7 +279,17 @@ impl HostManager {
         }
     }
 
-    pub fn get_available_host(&self) -> Result<String, ImageAnalysisError> {
+    /// Picks a host to send the next request to, preferring one that is currently healthy.
+    ///
+    /// Expired unavailability entries are pruned first. When every host is unavailable the
+    /// least recently unavailable one is returned as a fallback.
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::AllHostsUnavailable`] when no host is configured at all.
+    ///
+    /// # Panics
+    /// Panics if one of the internal availability mutexes has been poisoned.
+    pub fn get_available_host(&self) -> Result<String, AnalysisError> {
         debug!(
             "Looking for available {:?} hosts. Total hosts: {}",
             self.interface,
@@ -322,9 +342,13 @@ impl HostManager {
         drop(unavailable);
 
         error!("No {:?} hosts available at all", self.interface);
-        Err(ImageAnalysisError::AllHostsUnavailable)
+        Err(AnalysisError::AllHostsUnavailable)
     }
 
+    /// Marks `host` as temporarily unavailable for the configured unavailability window.
+    ///
+    /// # Panics
+    /// Panics if the availability mutex has been poisoned.
     pub fn mark_host_unavailable(&self, host: &str) {
         self.unavailable_hosts
             .lock()
@@ -336,6 +360,10 @@ impl HostManager {
         );
     }
 
+    /// Marks `host` as permanently unavailable.
+    ///
+    /// # Panics
+    /// Panics if the permanent availability mutex has been poisoned.
     pub fn mark_host_unavailable_forever(&self, host: &str) {
         self.permanently_unavailable_hosts
             .lock()
@@ -350,12 +378,24 @@ impl HostManager {
         );
     }
 
+    /// Sends `image_data` to a host for analysis and returns the trimmed description.
+    ///
+    /// Hosts are tried in turn, marking each one unavailable on failure, and the whole sweep
+    /// is retried according to the configured retry limit and delay.
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::ProviderRejected`] when
+    /// the provider permanently refuses the image,
+    /// [`AnalysisError::ProcessingError`] when the image
+    /// cannot be encoded or the response body cannot be read,
+    /// [`AnalysisError::AllHostsUnavailable`] when no host
+    /// can be selected, and the last non-retryable error otherwise.
     pub async fn analyze_image(
         &self,
         image_data: Bytes,
         prompt: &str,
         asset_id: Uuid,
-    ) -> Result<ImageAnalysisResult, ImageAnalysisError> {
+    ) -> Result<ImageAnalysisResult, AnalysisError> {
         info!(
             "Starting {:?} analysis for asset: {asset_id}",
             self.interface
@@ -367,7 +407,7 @@ impl HostManager {
             image_bytes_to_png_base64(image_data, asset_id, max_image_size)
         })
         .await
-        .map_err(|err| ImageAnalysisError::ProcessingError {
+        .map_err(|err| AnalysisError::ProcessingError {
             asset_id,
             error: format_error_chain(&err),
         })??;
@@ -449,7 +489,7 @@ impl HostManager {
                         if response.status().is_success() {
                             let response_text = response.text().await.map_err(|err| {
                                 error!("Failed to read response body: {err}");
-                                ImageAnalysisError::ProcessingError {
+                                AnalysisError::ProcessingError {
                                     asset_id,
                                     error: format_error_chain(&err),
                                 }
@@ -466,7 +506,7 @@ impl HostManager {
                                             "{:?} provider rejected request for {}: {}",
                                             self.interface, asset_id, provider_message
                                         );
-                                        return Err(ImageAnalysisError::ProviderRejected {
+                                        return Err(AnalysisError::ProviderRejected {
                                             status,
                                             asset_id,
                                             message: provider_message,
@@ -478,9 +518,8 @@ impl HostManager {
                                         let description = raw_description.trim().to_owned();
                                         if description.is_empty() {
                                             warn!("Empty response for image: {asset_id}");
-                                            last_error = Some(ImageAnalysisError::EmptyResponse {
-                                                asset_id,
-                                            });
+                                            last_error =
+                                                Some(AnalysisError::EmptyResponse { asset_id });
                                         } else {
                                             info!(
                                                 "{:?} analysis successful for {}, description length: {}",
@@ -497,8 +536,8 @@ impl HostManager {
                                         error!(
                                             "Failed to extract content from response for {asset_id}"
                                         );
-                                        last_error = Some(ImageAnalysisError::JsonParsing {
-                                            subject: ErrorSubject::Asset(asset_id),
+                                        last_error = Some(AnalysisError::JsonParsing {
+                                            subject: Subject::Asset(asset_id),
                                             error: "No content field found in response".to_owned(),
                                         });
                                     }
@@ -507,8 +546,8 @@ impl HostManager {
                                     error!(
                                         "Failed to parse response as JSON for {asset_id}: {parse_error}"
                                     );
-                                    let error = ImageAnalysisError::JsonParsing {
-                                        subject: ErrorSubject::Asset(asset_id),
+                                    let error = AnalysisError::JsonParsing {
+                                        subject: Subject::Asset(asset_id),
                                         error: format_error_chain(&parse_error),
                                     };
                                     if !error.is_retryable() {
@@ -533,15 +572,15 @@ impl HostManager {
                                 && let Some(provider_message) =
                                     self.interface.permanent_rejection_message(&json_value)
                             {
-                                ImageAnalysisError::ProviderRejected {
+                                AnalysisError::ProviderRejected {
                                     status,
                                     asset_id,
                                     message: provider_message,
                                 }
                             } else {
-                                ImageAnalysisError::HttpError {
+                                AnalysisError::HttpError {
                                     status,
-                                    subject: ErrorSubject::Asset(asset_id),
+                                    subject: Subject::Asset(asset_id),
                                     response: response_text,
                                 }
                             };
@@ -556,13 +595,13 @@ impl HostManager {
                             "{:?} request failed for {}: {}",
                             self.interface, asset_id, err
                         );
-                        last_error = Some(ImageAnalysisError::HttpClientError {
+                        last_error = Some(AnalysisError::HttpClientError {
                             asset_id: Some(asset_id),
                             error: format_error_chain(&err),
                         });
                     }
                     Err(_) => {
-                        last_error = Some(ImageAnalysisError::AiRequestTimeout);
+                        last_error = Some(AnalysisError::AiRequestTimeout);
                     }
                 }
                 warn!(
@@ -589,17 +628,24 @@ impl HostManager {
                 break;
             }
         }
-        Err(last_error.unwrap_or(ImageAnalysisError::AllHostsUnavailable))
+        Err(last_error.unwrap_or(AnalysisError::AllHostsUnavailable))
     }
 
+    /// Verifies that at least one host serves the configured model,
+    /// marking the hosts that do not as unavailable.
+    ///
+    /// # Errors
+    /// Returns [`AnalysisError::NoHostsConfigured`] when no host is configured, and
+    /// [`AnalysisError::ModelNotFound`]
+    /// or the underlying request failure when every host was checked without success.
     pub async fn check_model_available_and_mark_unavailable_hosts(
         &self,
-    ) -> Result<(), ImageAnalysisError> {
+    ) -> Result<(), AnalysisError> {
         if self.hosts.is_empty() {
-            return Err(ImageAnalysisError::NoHostsConfigured);
+            return Err(AnalysisError::NoHostsConfigured);
         }
 
-        let mut last_error: Option<ImageAnalysisError> = None;
+        let mut last_error: Option<AnalysisError> = None;
         let mut at_least_one = false;
         for host in &self.hosts {
             match self.check_host(host).await {
@@ -616,7 +662,7 @@ impl HostManager {
                         self.model_name
                     );
                     self.mark_host_unavailable_forever(host);
-                    last_error = Some(ImageAnalysisError::ModelNotFound {
+                    last_error = Some(AnalysisError::ModelNotFound {
                         model: self.model_name.clone(),
                         host: host.clone(),
                         closest,
@@ -633,7 +679,7 @@ impl HostManager {
         if at_least_one {
             Ok(())
         } else {
-            Err(last_error.unwrap_or(ImageAnalysisError::NoHostsConfigured))
+            Err(last_error.unwrap_or(AnalysisError::NoHostsConfigured))
         }
     }
 
@@ -655,8 +701,8 @@ impl HostManager {
                 match response.json::<Value>().await {
                     Ok(value) => self.interface.model_names(&value),
                     Err(err) => {
-                        return HostCheck::Failed(ImageAnalysisError::JsonParsing {
-                            subject: ErrorSubject::ModelsList,
+                        return HostCheck::Failed(AnalysisError::JsonParsing {
+                            subject: Subject::ModelsList,
                             error: format_error_chain(&err),
                         });
                     }
@@ -667,14 +713,14 @@ impl HostManager {
             }
             Ok(response) => {
                 let status = response.status();
-                return HostCheck::Failed(ImageAnalysisError::HttpError {
+                return HostCheck::Failed(AnalysisError::HttpError {
                     status,
-                    subject: ErrorSubject::ModelsList,
+                    subject: Subject::ModelsList,
                     response: response.text().await.unwrap_or_default(),
                 });
             }
             Err(err) => {
-                return HostCheck::Failed(ImageAnalysisError::HttpClientError {
+                return HostCheck::Failed(AnalysisError::HttpClientError {
                     asset_id: None,
                     error: format_error_chain(&err),
                 });
@@ -716,12 +762,12 @@ impl HostManager {
             Ok(response) if response.status() == reqwest::StatusCode::NOT_FOUND => {
                 HostCheck::Missing { closest: None }
             }
-            Ok(response) => HostCheck::Failed(ImageAnalysisError::HttpError {
+            Ok(response) => HostCheck::Failed(AnalysisError::HttpError {
                 status: response.status(),
-                subject: ErrorSubject::TestCompletion,
+                subject: Subject::TestCompletion,
                 response: response.text().await.unwrap_or_default(),
             }),
-            Err(err) => HostCheck::Failed(ImageAnalysisError::HttpClientError {
+            Err(err) => HostCheck::Failed(AnalysisError::HttpClientError {
                 asset_id: None,
                 error: format_error_chain(&err),
             }),

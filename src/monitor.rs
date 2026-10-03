@@ -1,9 +1,9 @@
 use crate::{
     config::{MonitorConfig, ProcessingContext},
-    error::ImageAnalysisError,
+    error::AnalysisError,
     health::mark_activity,
     host_manager::{HostManager, ImageAnalysisResult},
-    immich_api::ImmichApiProvider,
+    immich_api::ApiProvider,
     prompt_enricher::enrich_prompt_if_needed,
     utils::{
         OverwriteDecision, blocked_marker_text, build_final_description, check_overwrite_policy,
@@ -24,11 +24,15 @@ use tokio::{
 use uuid::Uuid;
 
 /// Process a downloaded thumbnail and write the AI description back to the asset.
+///
+/// # Errors
+/// Returns [`AnalysisError::PermanentlyRejected`] when the provider permanently refused the image,
+/// and propagates any failure of the overwrite-policy check, the analysis, or the description update.
 pub async fn process_new_asset(
     ctx: &ProcessingContext<'_>,
     image_data: Bytes,
     asset_id: Uuid,
-) -> Result<(), ImageAnalysisError> {
+) -> Result<(), AnalysisError> {
     println!(
         "{}",
         rust_i18n::t!("monitor.asset_detected", asset_id = asset_id)
@@ -74,7 +78,7 @@ pub async fn process_new_asset(
         .await
     {
         Ok(analysis) => (analysis, false),
-        Err(ImageAnalysisError::ProviderRejected {
+        Err(AnalysisError::ProviderRejected {
             status, message, ..
         }) => (
             ImageAnalysisResult {
@@ -126,7 +130,7 @@ pub async fn process_new_asset(
     }
 
     if rejected {
-        Err(ImageAnalysisError::PermanentlyRejected {
+        Err(AnalysisError::PermanentlyRejected {
             asset_id,
             reason: analysis.description,
         })
@@ -135,13 +139,17 @@ pub async fn process_new_asset(
     }
 }
 
-/// Monitor for new assets by polling the Immich API.
-pub async fn monitor_folder(
-    immich_api_provider: Arc<ImmichApiProvider>,
+/// Monitor for new assets by polling the Immich API until a stop signal arrives.
+///
+/// # Panics
+/// Panics if the SIGTERM or SIGINT handler cannot be installed,
+/// or if the shared in-flight asset set mutex has been poisoned.
+pub async fn run(
+    immich_api_provider: Arc<ApiProvider>,
     prompt: &str,
     config: &MonitorConfig,
     host_manager: Arc<HostManager>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) {
     rust_i18n::set_locale(&config.lang);
 
     let (stop_tx, mut stop_rx) = tokio_mpsc::channel(1);
@@ -188,7 +196,7 @@ pub async fn monitor_folder(
         tokio::select! {
             Some(()) = stop_rx.recv() => {
                 println!("{}", rust_i18n::t!("monitor.stopping_monitoring"));
-                return Ok(());
+                return;
             }
             _ = poll_interval.tick() => {
                 mark_activity();
@@ -207,7 +215,7 @@ pub async fn monitor_folder(
 
 #[derive(Clone)]
 struct BackgroundCtx {
-    immich_api_provider: Arc<ImmichApiProvider>,
+    immich_api_provider: Arc<ApiProvider>,
     prompt: String,
     host_manager: Arc<HostManager>,
     processing_assets: Arc<Mutex<HashSet<Uuid>>>,

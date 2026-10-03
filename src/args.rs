@@ -37,7 +37,7 @@ pub enum OverwritePolicy {
     None,
     /// Process all assets regardless of existing descriptions
     All,
-    /// Skip only if description contains [AI]...[/AI] block; process human-only and empty descriptions
+    /// Skip only if description contains `[AI]...[/AI]` block; process human-only and empty descriptions
     MissingAi,
 }
 
@@ -57,11 +57,11 @@ pub struct Args {
     /// Overwrite policy [default: none]:
     /// none (skip any with description),
     /// all (process everything),
-    /// missing-ai (process only if no [AI]...[/AI] block).
+    /// missing-ai (process only if no `[AI]...[/AI]` block).
     /// Takes precedence over --overwrite-existing.
     #[arg(short = 'O', long, value_enum)]
     pub overwrite_policy: Option<OverwritePolicy>,
-    /// When overwriting or adding, preserve human-entered text by only replacing the [AI]...[/AI] block
+    /// When overwriting or adding, preserve human-entered text by only replacing the `[AI]...[/AI]` block
     #[arg(short, long, conflicts_with = "disable_ai_wrapper")]
     pub preserve_human: bool,
     /// Immich API base URL (required)
@@ -142,7 +142,7 @@ pub struct Args {
     /// Enable prompt enrichment with asset metadata (date, location, camera info)
     #[arg(long, default_value_t = false)]
     pub enrich_prompt: bool,
-    /// Disable [AI]...[/AI] wrapper around AI-generated description
+    /// Disable `[AI]...[/AI]` wrapper around AI-generated description
     #[arg(long, default_value_t = false, conflicts_with = "preserve_human")]
     pub disable_ai_wrapper: bool,
     /// Disable final output with analysis results and statistics after batch processing
